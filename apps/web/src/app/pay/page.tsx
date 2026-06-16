@@ -33,7 +33,7 @@ export default function PayPage() {
   // Fetch Wallets for Asset Selection
   const { data: wallets } = useQuery({
     queryKey: ["wallets"],
-    queryFn: () => cryptoPaySdk.wallets.list(),
+    queryFn: () => cryptoPaySdk.wallets.listWallets(),
   });
 
   // Transaction Creation Mutation
@@ -43,9 +43,9 @@ export default function PayPage() {
       assetIn: selectedAsset,
       amountInPaise: DEMO_AMOUNT_PAISE,
       merchantUpiVpa: DEMO_VPA,
-      walletId: wallets?.[0]?.id,
+      ...(wallets?.data?.[0]?.id ? { walletId: wallets.data[0].id } : {}),
     }),
-    onSuccess: async (data) => {
+    onSuccess: async (data: any) => {
       setTransactionId(data.id);
       setStep("PROCESSING");
       // Fast-forward processing via simulate

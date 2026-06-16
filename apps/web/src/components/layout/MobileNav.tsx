@@ -48,6 +48,6 @@ export function MobileNav() {
           );
         })}
       </div>
-    </div>
+    </nav>
   );
 }

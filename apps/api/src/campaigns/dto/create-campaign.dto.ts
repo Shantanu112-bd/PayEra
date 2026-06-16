@@ -23,7 +23,7 @@ export class CreateCampaignDto {
 
   @ApiPropertyOptional({
     enum: CampaignRewardType,
-    example: CampaignRewardType.SPEND_THRESHOLD,
+    default: CampaignRewardType.SPEND_AND_EARN,
   })
   @IsOptional()
   @IsEnum(CampaignRewardType)

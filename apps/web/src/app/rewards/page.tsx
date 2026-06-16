@@ -13,8 +13,16 @@ export default function RewardsPage() {
     queryFn: async () => {
       // Fetch balance and return it as totalMinted
       const balanceObj = await cryptoPaySdk.rewards.getRewards();
-      return { totalMinted: balanceObj.totalStarAmount || balanceObj.balance || "0" };
+      return { totalMinted: balanceObj.totalStarAmount || "0" };
     },
+  });
+
+  // Use a hardcoded mock user ID since auth isn't fully connected in the UI yet
+  const DEMO_USER_ID = "33333333-3333-3333-3333-333333333333";
+  
+  const { data: metrics, isLoading: metricsLoading } = useQuery({
+    queryKey: ["consumer-reward-metrics", DEMO_USER_ID],
+    queryFn: () => cryptoPaySdk.analytics.getConsumerRewardMetrics(DEMO_USER_ID),
   });
 
   return (
@@ -51,9 +59,20 @@ export default function RewardsPage() {
             />
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
-            <MetricCard title="Earned via Spend" value="1,200" icon={<Star />} />
-            <MetricCard title="Earned via Referrals" value="800" icon={<Users />} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mt-6">
+            {metricsLoading ? (
+              <>
+                <Skeleton className="h-[100px] w-full rounded-xl" />
+                <Skeleton className="h-[100px] w-full rounded-xl" />
+              </>
+            ) : (
+              <>
+                <MetricCard title="Earned via Spend" value={metrics?.byReason.SPEND.toString() || "0"} icon={<Star />} />
+                <MetricCard title="Earned via Referrals" value={metrics?.byReason.REFERRAL.toString() || "0"} icon={<Users />} />
+                <MetricCard title="Earned via Campaigns" value={metrics?.byReason.CAMPAIGN?.toString() || "0"} icon={<Gift />} />
+                <MetricCard title="Earned via Merchants" value={metrics?.byReason.MERCHANT?.toString() || "0"} icon={<Star />} />
+              </>
+            )}
           </div>
         </div>
 

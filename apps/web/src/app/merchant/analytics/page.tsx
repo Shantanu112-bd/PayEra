@@ -24,33 +24,9 @@ export default function MerchantAnalyticsPage() {
     queryFn: () => cryptoPaySdk.analytics.getRewardMetrics(DEMO_MERCHANT_ID),
   });
 
-  // Mock data for charts if API doesn't return time-series data yet
-  const revenueChartData = [
-    { date: "Mon", revenue: 12500 },
-    { date: "Tue", revenue: 15200 },
-    { date: "Wed", revenue: 14100 },
-    { date: "Thu", revenue: 18400 },
-    { date: "Fri", revenue: 21000 },
-    { date: "Sat", revenue: 25500 },
-    { date: "Sun", revenue: 23100 },
-  ];
-
-  const transactionChartData = [
-    { date: "Mon", usdc: 45, xlm: 20 },
-    { date: "Tue", usdc: 52, xlm: 25 },
-    { date: "Wed", usdc: 48, xlm: 22 },
-    { date: "Thu", usdc: 61, xlm: 30 },
-    { date: "Fri", usdc: 75, xlm: 35 },
-    { date: "Sat", usdc: 85, xlm: 40 },
-    { date: "Sun", usdc: 80, xlm: 38 },
-  ];
-
-  const rewardDistributionData = [
-    { name: "Coffee Campaign", value: 4500 },
-    { name: "Summer Promo", value: 3200 },
-    { name: "Referral Bonus", value: 2100 },
-    { name: "Loyalty Tier", value: 1500 },
-  ];
+  const revenueChartData = revenueMetrics?.timeSeries || [];
+  const transactionChartData = revenueMetrics?.transactionSeries || [];
+  const rewardDistributionData = rewardMetrics?.campaignDistribution || [];
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -68,6 +44,8 @@ export default function MerchantAnalyticsPage() {
         >
           {revenueLoading ? (
             <Skeleton className="h-[300px] w-full" />
+          ) : revenueChartData.length === 0 ? (
+            <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-white/5 rounded-xl bg-black/20">No revenue data available</div>
           ) : (
             <LineChart 
               data={revenueChartData} 
@@ -85,6 +63,8 @@ export default function MerchantAnalyticsPage() {
         >
           {revenueLoading ? (
             <Skeleton className="h-[300px] w-full" />
+          ) : transactionChartData.length === 0 ? (
+            <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-white/5 rounded-xl bg-black/20">No transaction data available</div>
           ) : (
             <BarChart 
               data={transactionChartData} 
@@ -101,6 +81,8 @@ export default function MerchantAnalyticsPage() {
         >
           {rewardLoading ? (
             <Skeleton className="h-[300px] w-full" />
+          ) : rewardDistributionData.length === 0 ? (
+             <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-white/5 rounded-xl bg-black/20">No rewards minted yet</div>
           ) : (
             <PieChart 
               data={rewardDistributionData} 
@@ -121,7 +103,7 @@ export default function MerchantAnalyticsPage() {
               </div>
               <div className="flex justify-between items-center pb-4 border-b border-white/5">
                 <span className="text-muted-foreground">Total STAR Minted</span>
-                <span className="font-semibold text-blue-400">{rewardMetrics?.totalRewardsMinted?.toLocaleString() || "11,300"} STAR</span>
+                <span className="font-semibold text-blue-400">{rewardMetrics?.totalMinted?.toLocaleString() || "11,300"} STAR</span>
               </div>
               <div className="flex justify-between items-center pb-4 border-b border-white/5">
                 <span className="text-muted-foreground">Most Used Asset</span>

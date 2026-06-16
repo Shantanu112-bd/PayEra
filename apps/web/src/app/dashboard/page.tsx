@@ -18,17 +18,17 @@ import { useStellarWallet } from "../../components/providers/StellarWalletProvid
 export default function DashboardPage() {
   const { data: wallets, isLoading: walletsLoading } = useQuery({
     queryKey: ["wallets"],
-    queryFn: () => cryptoPaySdk.wallets.list(),
+    queryFn: () => cryptoPaySdk.wallets.listWallets(),
   });
 
   const { data: rewards, isLoading: rewardsLoading } = useQuery({
     queryKey: ["rewards"],
-    queryFn: () => cryptoPaySdk.rewards.getSummary(),
+    queryFn: () => cryptoPaySdk.rewards.getRewards(),
   });
 
   const { data: transactions, isLoading: txLoading } = useQuery({
     queryKey: ["transactions"],
-    queryFn: () => cryptoPaySdk.transactions.list({ limit: 5 }),
+    queryFn: () => cryptoPaySdk.transactions.listTransactions({ limit: 5 }),
   });
 
   const { publicKey, balances, isWalletInstalled, connect } = useStellarWallet();
@@ -80,7 +80,7 @@ export default function DashboardPage() {
           <Skeleton className="h-[180px] w-full rounded-xl" />
         ) : (
           <RewardBalanceCard 
-            starBalance={rewards.totalMinted} 
+            starBalance={rewards.totalStarAmount} 
             onClaim={() => {}} 
           />
         )}
@@ -110,7 +110,7 @@ export default function DashboardPage() {
               No recent transactions
             </div>
           ) : (
-            transactions?.data.map((tx) => (
+            transactions?.data.map((tx: any) => (
               <TransactionCard key={tx.id} transaction={tx} isOutbound={tx.type === "CRYPTO_TO_FIAT"} />
             ))
           )}

@@ -44,19 +44,19 @@ export default function MerchantCampaignsPage() {
           <>
             <MetricCard 
               title="Active Campaigns" 
-              value={(metrics?.activeCampaigns || 0).toString()} 
+              value={(metrics?.activeCampaignsCount || 0).toString()} 
             />
             <MetricCard 
-              title="Total Participants" 
-              value={(metrics?.totalCampaigns || 0).toString()} 
+              title="Merchants Participating" 
+              value={(metrics?.merchantsParticipating || 0).toString()} 
             />
             <MetricCard 
-              title="STAR Budget" 
-              value={`${metrics?.totalBudgetSTAR.toLocaleString("en-US") || 0} STAR`} 
+              title="Total Budget (STAR)" 
+              value={`${(metrics?.totalBudget || 0).toLocaleString("en-US")} STAR`} 
             />
             <MetricCard 
-              title="STAR Distributed" 
-              value={`${metrics?.totalDistributedSTAR.toLocaleString("en-US") || 0} STAR`} 
+              title="Total Distributed" 
+              value={`${(metrics?.totalSpent || 0).toLocaleString("en-US")} STAR`} 
             />
           </>
         )}

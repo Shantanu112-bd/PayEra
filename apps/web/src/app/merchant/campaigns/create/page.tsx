@@ -16,6 +16,10 @@ export default function CreateCampaignPage() {
     name: "",
     budget: "",
     rewardRate: "",
+    type: "SPEND_AND_EARN",
+    targetAmount: "",
+    startsAt: "",
+    endsAt: "",
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -27,6 +31,10 @@ export default function CreateCampaignPage() {
         brandId: DEMO_BRAND_ID,
         budgetUsdc: parseFloat(formData.budget),
         rewardMultiplier: parseFloat(formData.rewardRate),
+        rewardType: formData.type,
+        thresholdAmountPaise: formData.targetAmount ? (parseFloat(formData.targetAmount) * 100).toString() : "0",
+        startsAt: formData.startsAt ? new Date(formData.startsAt).toISOString() : undefined,
+        endsAt: formData.endsAt ? new Date(formData.endsAt).toISOString() : undefined,
       });
       // Redirect back to campaigns list after creation
       router.push("/merchant/campaigns");
@@ -39,7 +47,7 @@ export default function CreateCampaignPage() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-2xl mx-auto">
+    <div className="space-y-6 animate-in fade-in duration-500 max-w-3xl mx-auto">
       <div className="flex items-center gap-4 border-b border-white/10 pb-6">
         <Link href="/merchant/campaigns" className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors">
           <ArrowLeft className="h-5 w-5" />
@@ -52,19 +60,34 @@ export default function CreateCampaignPage() {
 
       <form onSubmit={handleSubmit} className="bg-[#111111] rounded-xl border border-white/10 p-6 space-y-6">
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-white mb-2">Campaign Name</label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. Summer Coffee Special"
-              className="w-full bg-black border border-white/10 rounded-lg px-4 py-2 text-white placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            />
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-white mb-2">Campaign Name</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Summer Coffee Special"
+                className="w-full bg-black border border-white/10 rounded-lg px-4 py-2 text-white placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              />
+            </div>
+            
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-white mb-2">Campaign Type</label>
+              <select
+                className="w-full bg-black border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={formData.type}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+              >
+                <option value="SPEND_AND_EARN">Spend & Earn</option>
+                <option value="WELCOME_BONUS">Welcome Bonus</option>
+                <option value="DOUBLE_REWARDS">Double Rewards</option>
+                <option value="REFERRAL_CAMPAIGN">Referral Campaign</option>
+                <option value="CUSTOM">Custom</option>
+              </select>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-white mb-2">Total Budget (USDC)</label>
               <div className="relative">
@@ -83,7 +106,21 @@ export default function CreateCampaignPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-white mb-2">Reward Rate</label>
+              <label className="block text-sm font-medium text-white mb-2">Target Transaction Amount (INR)</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₹</span>
+                <input
+                  type="number"
+                  placeholder="e.g. 500"
+                  className="w-full bg-black border border-white/10 rounded-lg pl-9 pr-4 py-2 text-white placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={formData.targetAmount}
+                  onChange={(e) => setFormData({ ...formData, targetAmount: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">Reward Multiplier</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">x</span>
                 <input
@@ -97,9 +134,33 @@ export default function CreateCampaignPage() {
                   onChange={(e) => setFormData({ ...formData, rewardRate: e.target.value })}
                 />
               </div>
-              <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-                <Info className="h-3 w-3" /> Multiplier applied to standard STAR earning rate.
-              </p>
+            </div>
+            
+            <div className="md:col-span-2 grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">Start Date</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input
+                    type="date"
+                    className="w-full bg-black border border-white/10 rounded-lg pl-9 pr-4 py-2 text-white placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    value={formData.startsAt}
+                    onChange={(e) => setFormData({ ...formData, startsAt: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">End Date</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input
+                    type="date"
+                    className="w-full bg-black border border-white/10 rounded-lg pl-9 pr-4 py-2 text-white placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    value={formData.endsAt}
+                    onChange={(e) => setFormData({ ...formData, endsAt: e.target.value })}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>

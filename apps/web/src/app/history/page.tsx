@@ -8,8 +8,8 @@ import { Filter, Download } from "lucide-react";
 
 export default function HistoryPage() {
   const { data: transactions, isLoading } = useQuery({
-    queryKey: ["transactions-all"],
-    queryFn: () => cryptoPaySdk.transactions.list({ limit: 50 }),
+    queryKey: ["transactions"],
+    queryFn: () => cryptoPaySdk.transactions.listTransactions({ limit: 50 }),
   });
 
   return (
@@ -39,7 +39,7 @@ export default function HistoryPage() {
           />
         ) : (
           <div className="bg-black/20 border border-white/5 rounded-xl overflow-hidden divide-y divide-white/5">
-            {transactions?.data.map((tx) => (
+            {transactions?.data.map((tx: any) => (
               <div key={tx.id} className="p-2">
                 <TransactionCard 
                   transaction={tx} 

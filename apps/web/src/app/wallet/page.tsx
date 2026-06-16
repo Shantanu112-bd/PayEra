@@ -10,7 +10,7 @@ import { useStellarWallet } from "../../components/providers/StellarWalletProvid
 export default function WalletPage() {
   const { data: wallets, isLoading } = useQuery({
     queryKey: ["wallets"],
-    queryFn: () => cryptoPaySdk.wallets.list(),
+    queryFn: () => cryptoPaySdk.wallets.listWallets(),
   });
 
   const { publicKey, balances, isWalletInstalled, connect } = useStellarWallet();

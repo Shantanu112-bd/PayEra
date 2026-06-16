@@ -1,7 +1,8 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { isConnected, requestAccess, getPublicKey } from "@stellar/freighter-api";
+import freighterApi from "@stellar/freighter-api";
+const { isConnected, requestAccess, getAddress } = freighterApi;
 import { fetchBalances, BalanceMap, getStarBalanceFromContract } from "@/lib/stellar";
 
 interface StellarWalletContextType {
@@ -62,8 +63,12 @@ export function StellarWalletProvider({ children }: { children: React.ReactNode 
     try {
       const access = await requestAccess();
       if (access) {
-        const pk = await getPublicKey();
-        setPublicKey(pk);
+        const result = await getAddress();
+        if (result && !result.error && result.address) {
+          setPublicKey(result.address);
+        } else {
+          console.error(result?.error || "Failed to get address");
+        }
       } else {
         console.error("User declined connection");
       }

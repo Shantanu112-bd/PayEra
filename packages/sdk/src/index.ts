@@ -58,6 +58,13 @@ export const getSdk = (): CryptoPaySdk => {
   return sharedSdkInstance;
 };
 
+// Export a default pre-initialized instance for convenience
+export const cryptoPaySdk = new CryptoPaySdk({
+  baseUrl: typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_API_URL 
+    ? process.env.NEXT_PUBLIC_API_URL 
+    : "http://localhost:3001"
+});
+
 // Also export raw classes if tree-shaking and custom instantiation is needed
 export {
   AuthSdk,

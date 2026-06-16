@@ -5,23 +5,25 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { ChartCard, LineChart, PieChart } from "@cryptopay/ui";
 
-export default function ConsumerAnalyticsPage() {
-  // We use mock data here because consumer analytics isn't a dedicated backend endpoint yet,
-  // but it demonstrates the capability as outlined in the plan.
-  const starEarningsData = [
-    { month: "Jan", earned: 450 },
-    { month: "Feb", earned: 820 },
-    { month: "Mar", earned: 610 },
-    { month: "Apr", earned: 1200 },
-    { month: "May", earned: 1550 },
-    { month: "Jun", earned: 2100 },
-  ];
+import { useQuery } from "@tanstack/react-query";
+import { cryptoPaySdk } from "@cryptopay/sdk";
 
-  const sourceData = [
-    { name: "Payments", value: 4500 },
-    { name: "Referrals", value: 1500 },
-    { name: "Campaigns", value: 800 },
-  ];
+const DEMO_USER_ID = "33333333-3333-3333-3333-333333333333";
+
+export default function ConsumerAnalyticsPage() {
+  const { data: metrics, isLoading } = useQuery({
+    queryKey: ["consumer-reward-metrics", DEMO_USER_ID],
+    queryFn: () => cryptoPaySdk.analytics.getConsumerRewardMetrics(DEMO_USER_ID),
+  });
+
+  const starEarningsData = metrics?.timeSeries || [];
+
+  const sourceData = metrics?.byReason ? [
+    { name: "Payments", value: metrics.byReason.SPEND || 0 },
+    { name: "Referrals", value: metrics.byReason.REFERRAL || 0 },
+    { name: "Campaigns", value: metrics.byReason.CAMPAIGN || 0 },
+    { name: "Merchant", value: metrics.byReason.MERCHANT || 0 },
+  ].filter(s => s.value > 0) : [];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
@@ -40,26 +42,38 @@ export default function ConsumerAnalyticsPage() {
           title="Earnings Over Time" 
           description="STAR tokens earned per month"
         >
-          <LineChart 
-            data={starEarningsData} 
-            index="month" 
-            categories={["earned"]} 
-            colors={["#f59e0b"]}
-            valueFormatter={(val) => `${val} STAR`}
-          />
+          {isLoading ? (
+             <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-white/5 rounded-xl bg-black/20">Loading...</div>
+          ) : starEarningsData.length === 0 ? (
+             <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-white/5 rounded-xl bg-black/20">No earnings data available</div>
+          ) : (
+            <LineChart 
+              data={starEarningsData} 
+              index="month" 
+              categories={["earned"]} 
+              colors={["#f59e0b"]}
+              valueFormatter={(val) => `${val} STAR`}
+            />
+          )}
         </ChartCard>
 
         <ChartCard 
           title="Earning Sources" 
           description="Where your STAR tokens come from"
         >
-          <PieChart 
-            data={sourceData} 
-            nameKey="name" 
-            dataKey="value" 
-            colors={["#3b82f6", "#10b981", "#8b5cf6"]}
-            valueFormatter={(val) => `${val} STAR`}
-          />
+          {isLoading ? (
+             <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-white/5 rounded-xl bg-black/20">Loading...</div>
+          ) : sourceData.length === 0 ? (
+             <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-white/5 rounded-xl bg-black/20">No earning sources available</div>
+          ) : (
+            <PieChart 
+              data={sourceData} 
+              nameKey="name" 
+              dataKey="value" 
+              colors={["#3b82f6", "#10b981", "#8b5cf6", "#f43f5e"]}
+              valueFormatter={(val) => `${val} STAR`}
+            />
+          )}
         </ChartCard>
       </div>
     </div>

@@ -29,4 +29,20 @@ export class CampaignsSdk {
   async getCampaignAnalytics(campaignId: string): Promise<any> {
     return this.client.get<any>(`/campaigns/${campaignId}/analytics`);
   }
+
+  async updateCampaign(campaignId: string, data: any): Promise<Campaign> {
+    return this.client.patch<Campaign>(`/campaigns/${campaignId}`, data);
+  }
+
+  async activateCampaign(campaignId: string): Promise<void> {
+    return this.client.post<void>(`/campaigns/${campaignId}/activate`);
+  }
+
+  async pauseCampaign(campaignId: string): Promise<void> {
+    return this.client.post<void>(`/campaigns/${campaignId}/pause`);
+  }
+
+  async completeCampaign(campaignId: string): Promise<void> {
+    return this.client.post<void>(`/campaigns/${campaignId}/complete`);
+  }
 }

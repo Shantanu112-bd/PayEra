@@ -20,13 +20,27 @@ export interface RevenueDataPoint {
   count: number;
 }
 
+export interface TransactionDataPoint {
+  date: string;
+  usdc: number;
+  xlm: number;
+}
+
 export interface RevenueMetricsDto {
   timeSeries: RevenueDataPoint[];
+  transactionSeries: TransactionDataPoint[];
   totalVolume: number;
+  averageOrderValueInr: number;
+}
+
+export interface RewardDistributionPoint {
+  name: string;
+  value: number;
 }
 
 export interface RewardMetricsDto {
   totalMinted: number;
+  campaignDistribution: RewardDistributionPoint[];
   byReason: {
     SPEND: number;
     REFERRAL: number;
@@ -40,4 +54,15 @@ export interface CampaignMetricsDto {
   totalSpent: number;
   activeCampaignsCount: number;
   merchantsParticipating: number;
+}
+
+export interface ConsumerRewardMetricsDto {
+  totalEarned: number;
+  timeSeries: { month: string; earned: number }[];
+  byReason: {
+    SPEND: number;
+    REFERRAL: number;
+    CAMPAIGN: number;
+    MERCHANT: number;
+  };
 }

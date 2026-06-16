@@ -14,7 +14,6 @@ const sdk = initializeSdk({
 // Since the sdk is a singleton, we can just initialize it once.
 // However, to satisfy auth requirements for demo, we mock an interceptor that always
 // sends the hardcoded generic token if present.
-sdk.admin.health().catch(() => {}); // Optional warm-up
 
 import { StellarWalletProvider } from "./StellarWalletProvider";
 
