@@ -1,0 +1,526 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  CONSUMER
+  MERCHANT_OPERATOR
+  BRAND_OPERATOR
+  ADMIN
+}
+
+enum UserStatus {
+  PENDING_ONBOARDING
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum WalletProvider {
+  FREIGHTER
+  WALLET_CONNECT
+  MOCK
+}
+
+enum WalletNetwork {
+  STELLAR
+  ETHEREUM
+  BITCOIN
+  SOLANA
+}
+
+enum WalletStatus {
+  ACTIVE
+  DISCONNECTED
+  REVOKED
+}
+
+enum MerchantStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum BrandStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  BLOCKED
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum CampaignRewardType {
+  SPEND_THRESHOLD
+  REFERRAL
+  BONUS
+}
+
+enum TransactionStatus {
+  CREATED
+  QUOTED
+  AUTHORIZED
+  CONVERTING
+  ROUTING_STELLAR
+  SETTLING
+  REWARDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TransactionType {
+  CRYPTO_TO_FIAT
+}
+
+enum PaymentRail {
+  UPI_MOCK
+}
+
+enum SettlementLayer {
+  STELLAR
+}
+
+enum AssetCode {
+  ETH
+  BTC
+  SOL
+  XLM
+  USDC
+  INR
+}
+
+enum SettlementStatus {
+  PENDING
+  SENT
+  CONFIRMED
+  FAILED
+}
+
+enum RewardReason {
+  SPEND
+  REFERRAL
+  CAMPAIGN
+  MERCHANT
+}
+
+enum RewardStatus {
+  PENDING
+  MINTED
+  FAILED
+  REVERSED
+}
+
+enum ReferralStatus {
+  INVITED
+  QUALIFIED
+  REWARDED
+  EXPIRED
+  CANCELLED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+model User {
+  id              String     @id @default(uuid()) @db.Uuid
+  email           String?    @db.VarChar(320)
+  emailNormalized String?    @unique @map("email_normalized") @db.VarChar(320)
+  phoneE164       String?    @unique @map("phone_e164") @db.VarChar(20)
+  displayName     String?    @map("display_name") @db.VarChar(160)
+  role            UserRole   @default(CONSUMER)
+  status          UserStatus @default(PENDING_ONBOARDING)
+  referralCode    String?    @unique @map("referral_code") @db.VarChar(32)
+  lastLoginAt     DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  metadata        Json       @default("{}")
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime?  @map("deleted_at") @db.Timestamptz(6)
+
+  adminLogs         AdminLog[]          @relation("AdminLogActor")
+  approvedMerchants Merchant[]          @relation("MerchantApprover")
+  idempotencyKeys   ApiIdempotencyKey[]
+  ownedBrands       Brand[]             @relation("BrandOwner")
+  ownedMerchants    Merchant[]          @relation("MerchantOwner")
+  receivedReferral  Referral?           @relation("ReferralInvitee")
+  rewards           Reward[]            @relation("RewardUser")
+  sentReferrals     Referral[]          @relation("ReferralInviter")
+  transactions      Transaction[]       @relation("TransactionUser")
+  wallets           Wallet[]
+
+  @@index([role, status])
+  @@index([status, createdAt])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model Wallet {
+  id                String         @id @default(uuid()) @db.Uuid
+  userId            String         @map("user_id") @db.Uuid
+  provider          WalletProvider @default(FREIGHTER)
+  network           WalletNetwork
+  address           String         @db.VarChar(191)
+  addressNormalized String         @map("address_normalized") @db.VarChar(191)
+  label             String?        @db.VarChar(80)
+  publicKey         String?        @map("public_key") @db.VarChar(191)
+  status            WalletStatus   @default(ACTIVE)
+  isPrimary         Boolean        @default(false) @map("is_primary")
+  verifiedAt        DateTime?      @map("verified_at") @db.Timestamptz(6)
+  lastUsedAt        DateTime?      @map("last_used_at") @db.Timestamptz(6)
+  metadata          Json           @default("{}")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  transactions Transaction[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([network, addressNormalized])
+  @@index([userId, status])
+  @@index([provider, status])
+  @@map("wallets")
+}
+
+model Merchant {
+  id                String         @id @default(uuid()) @db.Uuid
+  ownerUserId       String?        @map("owner_user_id") @db.Uuid
+  approvedByAdminId String?        @map("approved_by_admin_id") @db.Uuid
+  merchantCode      String         @unique @map("merchant_code") @db.VarChar(40)
+  legalName         String         @map("legal_name") @db.VarChar(180)
+  displayName       String         @map("display_name") @db.VarChar(120)
+  defaultUpiVpa     String?        @unique @map("default_upi_vpa") @db.VarChar(120)
+  category          String?        @db.VarChar(80)
+  status            MerchantStatus @default(PENDING)
+  riskLevel         RiskLevel      @default(LOW) @map("risk_level")
+  city              String?        @db.VarChar(80)
+  state             String?        @db.VarChar(80)
+  country           String         @default("IN") @db.Char(2)
+  postalCode        String?        @map("postal_code") @db.VarChar(20)
+  gstin             String?        @unique @db.VarChar(32)
+  mockKycReference  String?        @unique @map("mock_kyc_reference") @db.VarChar(80)
+  approvedAt        DateTime?      @map("approved_at") @db.Timestamptz(6)
+  metadata          Json           @default("{}")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  approvedByAdmin        User?                   @relation("MerchantApprover", fields: [approvedByAdminId], references: [id], onDelete: SetNull)
+  campaignLinks          CampaignMerchant[]
+  owner                  User?                   @relation("MerchantOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  qrCodes                MerchantQrCode[]
+  settlementInstructions SettlementInstruction[]
+  transactions           Transaction[]
+
+  @@index([ownerUserId, status])
+  @@index([status, createdAt])
+  @@index([city, state])
+  @@index([riskLevel, status])
+  @@map("merchants")
+}
+
+model MerchantQrCode {
+  id                 String   @id @default(uuid()) @db.Uuid
+  merchantId         String   @map("merchant_id") @db.Uuid
+  upiVpa             String   @map("upi_vpa") @db.VarChar(120)
+  qrPayload          String   @map("qr_payload") @db.Text
+  qrPayloadHash      String   @unique @map("qr_payload_hash") @db.VarChar(64)
+  defaultAmountPaise BigInt?  @map("default_amount_paise")
+  isActive           Boolean  @default(true) @map("is_active")
+  metadata           Json     @default("{}")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  merchant     Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([merchantId, isActive])
+  @@index([upiVpa])
+  @@map("merchant_qr_codes")
+}
+
+model Brand {
+  id          String      @id @default(uuid()) @db.Uuid
+  ownerUserId String?     @map("owner_user_id") @db.Uuid
+  name        String      @db.VarChar(160)
+  slug        String      @unique @db.VarChar(80)
+  status      BrandStatus @default(ACTIVE)
+  metadata    Json        @default("{}")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  campaigns Campaign[]
+  owner     User?      @relation("BrandOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+
+  @@index([ownerUserId, status])
+  @@index([status, createdAt])
+  @@map("brands")
+}
+
+model Campaign {
+  id                   String             @id @default(uuid()) @db.Uuid
+  brandId              String             @map("brand_id") @db.Uuid
+  name                 String             @db.VarChar(160)
+  description          String?            @db.Text
+  status               CampaignStatus     @default(DRAFT)
+  rewardType           CampaignRewardType @default(SPEND_THRESHOLD) @map("reward_type")
+  thresholdAmountPaise BigInt             @map("threshold_amount_paise")
+  rewardAmountStar     BigInt             @map("reward_amount_star")
+  budgetStar           BigInt             @map("budget_star")
+  spentStar            BigInt             @default(0) @map("spent_star")
+  startsAt             DateTime?          @map("starts_at") @db.Timestamptz(6)
+  endsAt               DateTime?          @map("ends_at") @db.Timestamptz(6)
+  metadata             Json               @default("{}")
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  brand         Brand              @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  merchantLinks CampaignMerchant[]
+  rewards       Reward[]
+  transactions  Transaction[]
+
+  @@index([brandId, status])
+  @@index([status, startsAt, endsAt])
+  @@index([rewardType, status])
+  @@map("campaigns")
+}
+
+model CampaignMerchant {
+  campaignId String   @map("campaign_id") @db.Uuid
+  merchantId String   @map("merchant_id") @db.Uuid
+  isActive   Boolean  @default(true) @map("is_active")
+  joinedAt   DateTime @default(now()) @map("joined_at") @db.Timestamptz(6)
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, merchantId])
+  @@index([merchantId, isActive])
+  @@map("campaign_merchants")
+}
+
+model Transaction {
+  id                      String            @id @default(uuid()) @db.Uuid
+  publicId                String            @unique @map("public_id") @db.VarChar(40)
+  userId                  String            @map("user_id") @db.Uuid
+  walletId                String?           @map("wallet_id") @db.Uuid
+  merchantId              String            @map("merchant_id") @db.Uuid
+  merchantQrCodeId        String?           @map("merchant_qr_code_id") @db.Uuid
+  campaignId              String?           @map("campaign_id") @db.Uuid
+  type                    TransactionType   @default(CRYPTO_TO_FIAT)
+  status                  TransactionStatus @default(CREATED)
+  rail                    PaymentRail       @default(UPI_MOCK)
+  settlementLayer         SettlementLayer   @default(STELLAR) @map("settlement_layer")
+  assetIn                 AssetCode         @map("asset_in")
+  amountInCrypto          Decimal?          @map("amount_in_crypto") @db.Decimal(36, 18)
+  amountInPaise           BigInt            @map("amount_in_paise")
+  quoteRateInrPerAsset    Decimal?          @map("quote_rate_inr_per_asset") @db.Decimal(36, 18)
+  usdcAmount              Decimal?          @map("usdc_amount") @db.Decimal(36, 18)
+  networkFeePaise         BigInt            @default(0) @map("network_fee_paise")
+  merchantSettlementPaise BigInt            @map("merchant_settlement_paise")
+  merchantUpiVpa          String            @map("merchant_upi_vpa") @db.VarChar(120)
+  qrPayloadHash           String?           @map("qr_payload_hash") @db.VarChar(64)
+  stellarLedger           BigInt?           @map("stellar_ledger")
+  stellarTransactionHash  String?           @unique @map("stellar_transaction_hash") @db.VarChar(128)
+  failureCode             String?           @map("failure_code") @db.VarChar(80)
+  failureMessage          String?           @map("failure_message") @db.Text
+  expiresAt               DateTime?         @map("expires_at") @db.Timestamptz(6)
+  authorizedAt            DateTime?         @map("authorized_at") @db.Timestamptz(6)
+  completedAt             DateTime?         @map("completed_at") @db.Timestamptz(6)
+  metadata                Json              @default("{}")
+  createdAt               DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  campaign              Campaign?              @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  events                TransactionEvent[]
+  merchant              Merchant               @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  merchantQrCode        MerchantQrCode?        @relation(fields: [merchantQrCodeId], references: [id], onDelete: SetNull)
+  qualifiedReferral     Referral?              @relation("ReferralFirstTransaction")
+  rewards               Reward[]
+  settlementInstruction SettlementInstruction?
+  user                  User                   @relation("TransactionUser", fields: [userId], references: [id], onDelete: Restrict)
+  wallet                Wallet?                @relation(fields: [walletId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([merchantId, createdAt])
+  @@index([status, createdAt])
+  @@index([assetIn, status])
+  @@index([campaignId, createdAt])
+  @@index([qrPayloadHash])
+  @@map("transactions")
+}
+
+model TransactionEvent {
+  id            String             @id @default(uuid()) @db.Uuid
+  transactionId String             @map("transaction_id") @db.Uuid
+  sequence      Int
+  status        TransactionStatus?
+  eventType     String             @map("event_type") @db.VarChar(80)
+  payload       Json               @default("{}")
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@unique([transactionId, sequence])
+  @@index([eventType, createdAt])
+  @@map("transaction_events")
+}
+
+model SettlementInstruction {
+  id            String           @id @default(uuid()) @db.Uuid
+  transactionId String           @unique @map("transaction_id") @db.Uuid
+  merchantId    String           @map("merchant_id") @db.Uuid
+  amountPaise   BigInt           @map("amount_paise")
+  currency      AssetCode        @default(INR)
+  rail          PaymentRail      @default(UPI_MOCK)
+  status        SettlementStatus @default(PENDING)
+  mockReference String?          @unique @map("mock_reference") @db.VarChar(80)
+  attemptedAt   DateTime?        @map("attempted_at") @db.Timestamptz(6)
+  confirmedAt   DateTime?        @map("confirmed_at") @db.Timestamptz(6)
+  failureReason String?          @map("failure_reason") @db.Text
+  metadata      Json             @default("{}")
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  merchant    Merchant    @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, status, createdAt])
+  @@index([status, createdAt])
+  @@map("settlement_instructions")
+}
+
+model Reward {
+  id              String       @id @default(uuid()) @db.Uuid
+  userId          String       @map("user_id") @db.Uuid
+  transactionId   String?      @map("transaction_id") @db.Uuid
+  campaignId      String?      @map("campaign_id") @db.Uuid
+  referralId      String?      @unique @map("referral_id") @db.Uuid
+  reason          RewardReason
+  status          RewardStatus @default(PENDING)
+  starAmount      BigInt       @map("star_amount")
+  formulaVersion  String       @default("STAR_SPEND_V1") @map("formula_version") @db.VarChar(40)
+  ruleSnapshot    Json         @default("{}") @map("rule_snapshot")
+  stellarMintHash String?      @unique @map("stellar_mint_hash") @db.VarChar(128)
+  mintedAt        DateTime?    @map("minted_at") @db.Timestamptz(6)
+  reversedAt      DateTime?    @map("reversed_at") @db.Timestamptz(6)
+  metadata        Json         @default("{}")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  campaign    Campaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  referral    Referral?    @relation(fields: [referralId], references: [id], onDelete: SetNull)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  user        User         @relation("RewardUser", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([transactionId, reason])
+  @@index([userId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([campaignId, createdAt])
+  @@map("rewards")
+}
+
+model Referral {
+  id                 String         @id @default(uuid()) @db.Uuid
+  inviterUserId      String         @map("inviter_user_id") @db.Uuid
+  invitedUserId      String?        @unique @map("invited_user_id") @db.Uuid
+  code               String         @unique @db.VarChar(32)
+  status             ReferralStatus @default(INVITED)
+  firstTransactionId String?        @unique @map("first_transaction_id") @db.Uuid
+  rewardAmountStar   BigInt         @default(100) @map("reward_amount_star")
+  qualifiedAt        DateTime?      @map("qualified_at") @db.Timestamptz(6)
+  rewardedAt         DateTime?      @map("rewarded_at") @db.Timestamptz(6)
+  expiresAt          DateTime?      @map("expires_at") @db.Timestamptz(6)
+  metadata           Json           @default("{}")
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  firstTransaction Transaction? @relation("ReferralFirstTransaction", fields: [firstTransactionId], references: [id], onDelete: SetNull)
+  invitedUser      User?        @relation("ReferralInvitee", fields: [invitedUserId], references: [id], onDelete: SetNull)
+  inviterUser      User         @relation("ReferralInviter", fields: [inviterUserId], references: [id], onDelete: Restrict)
+  reward           Reward?
+
+  @@index([inviterUserId, status])
+  @@index([status, createdAt])
+  @@map("referrals")
+}
+
+model AdminLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String   @db.VarChar(100)
+  targetType  String   @map("target_type") @db.VarChar(80)
+  targetId    String   @map("target_id") @db.VarChar(80)
+  requestId   String?  @map("request_id") @db.VarChar(80)
+  ipAddress   String?  @map("ip_address") @db.Inet
+  userAgent   String?  @map("user_agent") @db.Text
+  before      Json?    @map("before_state")
+  after       Json?    @map("after_state")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor User? @relation("AdminLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([action, createdAt])
+  @@map("admin_logs")
+}
+
+model ApiIdempotencyKey {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String?   @map("user_id") @db.Uuid
+  scope          String    @db.VarChar(80)
+  key            String    @db.VarChar(160)
+  requestHash    String    @map("request_hash") @db.VarChar(128)
+  responseStatus Int?      @map("response_status")
+  responseBody   Json?     @map("response_body")
+  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(6)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([scope, key])
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("api_idempotency_keys")
+}
+
+model OutboxEvent {
+  id            String       @id @default(uuid()) @db.Uuid
+  aggregateType String       @map("aggregate_type") @db.VarChar(80)
+  aggregateId   String       @map("aggregate_id") @db.VarChar(80)
+  eventType     String       @map("event_type") @db.VarChar(120)
+  payload       Json         @default("{}")
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  availableAt   DateTime     @default(now()) @map("available_at") @db.Timestamptz(6)
+  processedAt   DateTime?    @map("processed_at") @db.Timestamptz(6)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, availableAt])
+  @@index([aggregateType, aggregateId])
+  @@map("outbox_events")
+}

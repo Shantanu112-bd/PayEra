@@ -1,0 +1,407 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+
+import { PrismaService } from "../prisma/prisma.service";
+import { createReadableId, sha256Hex } from "../common/utils/ids";
+import { calculateSpendRewardStar } from "../common/utils/rewards";
+import { toPagination } from "../common/utils/pagination";
+import {
+  AssetCode,
+  MerchantStatus,
+  RewardReason,
+  RewardStatus,
+  SettlementStatus,
+  TransactionStatus,
+  UserRole,
+  type Prisma,
+} from "../generated/prisma";
+import type { AuthenticatedPrincipal } from "../common/decorators/current-user.decorator";
+import type { CreateTransactionDto } from "./dto/create-transaction.dto";
+import type { FailTransactionDto } from "./dto/fail-transaction.dto";
+import type { ListTransactionsDto } from "./dto/list-transactions.dto";
+import type { QuoteTransactionDto } from "./dto/quote-transaction.dto";
+import type { SimulateTransactionDto } from "./dto/simulate-transaction.dto";
+
+type Quote = {
+  amountInCrypto: string;
+  amountInPaise: string;
+  assetIn: AssetCode;
+  expiresAt: Date;
+  networkFeePaise: string;
+  quoteRateInrPerAsset: string;
+  starReward: string;
+  usdcAmount: string;
+};
+
+const MOCK_INR_RATES: Record<AssetCode, number> = {
+  [AssetCode.BTC]: 9_000_000,
+  [AssetCode.ETH]: 300_000,
+  [AssetCode.INR]: 1,
+  [AssetCode.SOL]: 14_000,
+  [AssetCode.USDC]: 83,
+  [AssetCode.XLM]: 9,
+};
+
+@Injectable()
+export class TransactionsService {
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  quote(dto: QuoteTransactionDto): Quote {
+    return this.createQuote(dto.assetIn, BigInt(dto.amountInPaise));
+  }
+
+  async create(owner: AuthenticatedPrincipal, dto: CreateTransactionDto) {
+    const amountInPaise = BigInt(dto.amountInPaise);
+    const merchant = await this.prisma.merchant.findUnique({
+      include: {
+        qrCodes:
+          dto.merchantQrCodeId === undefined
+            ? false
+            : {
+                where: {
+                  id: dto.merchantQrCodeId,
+                  isActive: true,
+                },
+              },
+      },
+      where: { id: dto.merchantId },
+    });
+
+    if (merchant === null || merchant.status !== MerchantStatus.APPROVED) {
+      throw new BadRequestException("Merchant is not approved");
+    }
+
+    if (dto.walletId !== undefined) {
+      await this.assertWalletAccess(owner, dto.walletId);
+    }
+
+    const qrCode = dto.merchantQrCodeId === undefined ? undefined : merchant.qrCodes[0];
+
+    if (dto.merchantQrCodeId !== undefined && qrCode === undefined) {
+      throw new BadRequestException("Merchant QR is not active");
+    }
+
+    const merchantUpiVpa = dto.merchantUpiVpa ?? qrCode?.upiVpa ?? merchant.defaultUpiVpa;
+
+    if (merchantUpiVpa === null || merchantUpiVpa === undefined) {
+      throw new BadRequestException("Merchant UPI VPA is required");
+    }
+
+    const quote = this.createQuote(dto.assetIn, amountInPaise);
+    const qrPayloadHash =
+      dto.qrPayload === undefined ? qrCode?.qrPayloadHash : sha256Hex(dto.qrPayload);
+
+    return this.prisma.transaction.create({
+      data: {
+        amountInCrypto: quote.amountInCrypto,
+        amountInPaise,
+        assetIn: dto.assetIn,
+        campaignId: dto.campaignId ?? null,
+        events: {
+          create: {
+            eventType: "transaction.created",
+            payload: {
+              quote,
+              source: "api",
+            },
+            sequence: 1,
+            status: TransactionStatus.CREATED,
+          },
+        },
+        expiresAt: quote.expiresAt,
+        merchantId: dto.merchantId,
+        merchantQrCodeId: dto.merchantQrCodeId ?? null,
+        merchantSettlementPaise: amountInPaise,
+        merchantUpiVpa,
+        networkFeePaise: BigInt(quote.networkFeePaise),
+        publicId: createReadableId("PAY"),
+        qrPayloadHash: qrPayloadHash ?? null,
+        quoteRateInrPerAsset: quote.quoteRateInrPerAsset,
+        settlementInstruction: {
+          create: {
+            amountPaise: amountInPaise,
+            merchantId: dto.merchantId,
+          },
+        },
+        status: TransactionStatus.CREATED,
+        usdcAmount: quote.usdcAmount,
+        userId: owner.id,
+        walletId: dto.walletId ?? null,
+      },
+      include: {
+        events: true,
+        merchant: true,
+        rewards: true,
+        settlementInstruction: true,
+      },
+    });
+  }
+
+  async list(owner: AuthenticatedPrincipal, query: ListTransactionsDto) {
+    const { skip, take } = toPagination(query);
+    const where: Prisma.TransactionWhereInput = {
+      ...this.accessWhere(owner),
+      ...(query.assetIn === undefined ? {} : { assetIn: query.assetIn }),
+      ...(query.campaignId === undefined ? {} : { campaignId: query.campaignId }),
+      ...(query.merchantId === undefined ? {} : { merchantId: query.merchantId }),
+      ...(query.status === undefined ? {} : { status: query.status }),
+    };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.transaction.findMany({
+        include: {
+          merchant: true,
+          rewards: true,
+          settlementInstruction: true,
+        },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take,
+        where,
+      }),
+      this.prisma.transaction.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
+  async findOne(owner: AuthenticatedPrincipal, id: string) {
+    const transaction = await this.prisma.transaction.findFirst({
+      include: {
+        events: { orderBy: { sequence: "asc" } },
+        merchant: true,
+        rewards: true,
+        settlementInstruction: true,
+        wallet: true,
+      },
+      where: {
+        id,
+        ...this.accessWhere(owner),
+      },
+    });
+
+    if (transaction === null) {
+      throw new NotFoundException("Transaction not found");
+    }
+
+    return transaction;
+  }
+
+  async simulate(owner: AuthenticatedPrincipal, id: string, dto: SimulateTransactionDto) {
+    const transaction = await this.findOne(owner, id);
+
+    if (
+      transaction.status === TransactionStatus.COMPLETED ||
+      transaction.status === TransactionStatus.CANCELLED ||
+      transaction.status === TransactionStatus.FAILED
+    ) {
+      throw new BadRequestException("Transaction is already terminal");
+    }
+
+    const rewardAmount = calculateSpendRewardStar(transaction.amountInPaise);
+    const stellarTransactionHash = dto.stellarTransactionHash ?? createReadableId("STELLAR");
+
+    return this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      await this.appendEvents(tx, transaction.id, [
+        TransactionStatus.QUOTED,
+        TransactionStatus.AUTHORIZED,
+        TransactionStatus.CONVERTING,
+        TransactionStatus.ROUTING_STELLAR,
+        TransactionStatus.SETTLING,
+        TransactionStatus.REWARDING,
+        TransactionStatus.COMPLETED,
+      ]);
+
+      await tx.settlementInstruction.update({
+        data: {
+          attemptedAt: now,
+          confirmedAt: now,
+          mockReference: createReadableId("UPI_MOCK"),
+          status: SettlementStatus.CONFIRMED,
+        },
+        where: { transactionId: transaction.id },
+      });
+
+      if (rewardAmount > 0n) {
+        await tx.reward.upsert({
+          create: {
+            reason: RewardReason.SPEND,
+            ruleSnapshot: {
+              formula: "10 STAR per INR 100 spent",
+              formulaVersion: "STAR_SPEND_V1",
+            },
+            starAmount: rewardAmount,
+            status: RewardStatus.MINTED,
+            stellarMintHash: createReadableId("STAR_MINT"),
+            transactionId: transaction.id,
+            userId: transaction.userId,
+            mintedAt: now,
+          },
+          update: {
+            status: RewardStatus.MINTED,
+          },
+          where: {
+            transactionId_reason: {
+              reason: RewardReason.SPEND,
+              transactionId: transaction.id,
+            },
+          },
+        });
+      }
+
+      return tx.transaction.update({
+        data: {
+          authorizedAt: now,
+          completedAt: now,
+          failureCode: null,
+          failureMessage: null,
+          status: TransactionStatus.COMPLETED,
+          stellarLedger: BigInt(Date.now()),
+          stellarTransactionHash,
+        },
+        include: {
+          events: { orderBy: { sequence: "asc" } },
+          merchant: true,
+          rewards: true,
+          settlementInstruction: true,
+        },
+        where: { id: transaction.id },
+      });
+    });
+  }
+
+  async cancel(owner: AuthenticatedPrincipal, id: string) {
+    const transaction = await this.findOne(owner, id);
+
+    if (transaction.status !== TransactionStatus.CREATED) {
+      throw new BadRequestException("Only created transactions can be cancelled");
+    }
+
+    await this.prisma.transactionEvent.create({
+      data: {
+        eventType: "transaction.cancelled",
+        sequence: await this.nextEventSequence(id),
+        status: TransactionStatus.CANCELLED,
+        transactionId: id,
+      },
+    });
+
+    return this.prisma.transaction.update({
+      data: { status: TransactionStatus.CANCELLED },
+      where: { id },
+    });
+  }
+
+  async fail(owner: AuthenticatedPrincipal, id: string, dto: FailTransactionDto) {
+    const transaction = await this.findOne(owner, id);
+
+    if (transaction.status === TransactionStatus.COMPLETED) {
+      throw new BadRequestException("Completed transactions cannot be failed");
+    }
+
+    await this.prisma.transactionEvent.create({
+      data: {
+        eventType: "transaction.failed",
+        payload: {
+          failureCode: dto.failureCode,
+          failureMessage: dto.failureMessage,
+        },
+        sequence: await this.nextEventSequence(id),
+        status: TransactionStatus.FAILED,
+        transactionId: id,
+      },
+    });
+
+    return this.prisma.transaction.update({
+      data: {
+        failureCode: dto.failureCode,
+        failureMessage: dto.failureMessage ?? null,
+        status: TransactionStatus.FAILED,
+      },
+      where: { id },
+    });
+  }
+
+  private createQuote(assetIn: AssetCode, amountInPaise: bigint): Quote {
+    if (assetIn === AssetCode.INR) {
+      throw new BadRequestException("assetIn must be a crypto asset");
+    }
+
+    const rate = MOCK_INR_RATES[assetIn];
+    const amountInr = Number(amountInPaise) / 100;
+    const amountInCrypto = amountInr / rate;
+    const usdcAmount = amountInr / MOCK_INR_RATES[AssetCode.USDC];
+
+    return {
+      amountInCrypto: amountInCrypto.toFixed(18),
+      amountInPaise: amountInPaise.toString(),
+      assetIn,
+      expiresAt: new Date(Date.now() + 30 * 1000),
+      networkFeePaise: "0",
+      quoteRateInrPerAsset: rate.toFixed(18),
+      starReward: calculateSpendRewardStar(amountInPaise).toString(),
+      usdcAmount: usdcAmount.toFixed(18),
+    };
+  }
+
+  private accessWhere(owner: AuthenticatedPrincipal): Prisma.TransactionWhereInput {
+    if (owner.role === UserRole.ADMIN) {
+      return {};
+    }
+
+    return {
+      OR: [{ userId: owner.id }, { merchant: { ownerUserId: owner.id } }],
+    };
+  }
+
+  private async assertWalletAccess(owner: AuthenticatedPrincipal, walletId: string) {
+    const wallet = await this.prisma.wallet.findUnique({
+      select: { userId: true },
+      where: { id: walletId },
+    });
+
+    if (wallet === null) {
+      throw new NotFoundException("Wallet not found");
+    }
+
+    if (owner.role !== UserRole.ADMIN && wallet.userId !== owner.id) {
+      throw new ForbiddenException("Wallet belongs to another user");
+    }
+  }
+
+  private async appendEvents(
+    tx: Prisma.TransactionClient,
+    transactionId: string,
+    statuses: TransactionStatus[],
+  ) {
+    const maxEvent = await tx.transactionEvent.aggregate({
+      _max: { sequence: true },
+      where: { transactionId },
+    });
+    const start = (maxEvent._max.sequence ?? 0) + 1;
+
+    await tx.transactionEvent.createMany({
+      data: statuses.map((status, index) => ({
+        eventType: `transaction.${status.toLowerCase()}`,
+        sequence: start + index,
+        status,
+        transactionId,
+      })),
+    });
+  }
+
+  private async nextEventSequence(transactionId: string): Promise<number> {
+    const maxEvent = await this.prisma.transactionEvent.aggregate({
+      _max: { sequence: true },
+      where: { transactionId },
+    });
+
+    return (maxEvent._max.sequence ?? 0) + 1;
+  }
+}

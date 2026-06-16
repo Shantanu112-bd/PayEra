@@ -1,0 +1,34 @@
+{
+  "name": "cryptopay-network",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.4.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tools/*"
+  ],
+  "scripts": {
+    "build": "turbo build",
+    "clean": "turbo clean && rm -rf node_modules",
+    "contracts:check": "cargo check --workspace",
+    "dev": "turbo dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^20",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.19",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.7.4",
+    "tsx": "^4.21.0",
+    "turbo": "^2.6.3",
+    "typescript": "^5",
+    "typescript-eslint": "^8.46.4"
+  }
+}

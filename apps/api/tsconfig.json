@@ -1,0 +1,17 @@
+{
+  "extends": "../../tools/typescript-config/node.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    {
+      "path": "../../packages/sdk"
+    },
+    {
+      "path": "../../packages/types"
+    }
+  ]
+}

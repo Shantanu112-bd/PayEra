@@ -1,0 +1,8 @@
+.turbo
+.next
+coverage
+dist
+node_modules
+target
+contracts/**/test_snapshots/
+apps/api/src/generated/prisma/

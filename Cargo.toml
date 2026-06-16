@@ -1,0 +1,16 @@
+[workspace]
+members = [
+  "contracts/merchant-registry",
+  "contracts/payment-engine",
+  "contracts/reward-engine",
+  "contracts/star-token"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+version = "0.1.0"
+
+[workspace.dependencies]
+soroban-sdk = "26.1.0"

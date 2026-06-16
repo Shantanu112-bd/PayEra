@@ -1,0 +1,11 @@
+{
+  "name": "@cryptopay/eslint-config",
+  "version": "0.1.0",
+  "exports": {
+    "./base": "./base.mjs",
+    "./next": "./next.mjs",
+    "./node": "./node.mjs"
+  },
+  "private": true,
+  "type": "module"
+}
