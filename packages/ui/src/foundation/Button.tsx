@@ -1,28 +1,36 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
-import { motion } from "framer-motion";
 
 import { cn } from "../lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center whitespace-nowrap text-sm font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/20 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 font-[family-name:var(--font-ibm-plex-mono)] tracking-[0.02em]",
   {
     variants: {
       variant: {
-        default: "bg-blue-600 text-white hover:bg-blue-700 shadow-sm",
-        destructive: "bg-red-500 text-white hover:bg-red-600 shadow-sm",
-        outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
-        glass: "bg-white/10 backdrop-blur-md border border-white/20 text-white hover:bg-white/20",
+        default:
+          "border-[1.5px] border-ink bg-transparent text-ink hover:bg-ink hover:text-white rounded-[50px]",
+        accent:
+          "border-[1.5px] border-ink bg-lime text-ink hover:bg-lime-hover rounded-[50px]",
+        outline:
+          "border-[1.5px] border-ink bg-transparent text-ink hover:bg-ink hover:text-white rounded-[50px]",
+        ghost:
+          "hover:bg-ink/5 text-ink rounded-[50px]",
+        secondary:
+          "border-[1.5px] border-ink bg-surface text-ink hover:bg-ink hover:text-white rounded-[50px]",
+        destructive:
+          "border-[1.5px] border-ink bg-transparent text-ink hover:bg-ink hover:text-white rounded-[50px]",
+        link:
+          "text-ink underline-offset-4 hover:underline",
+        glass:
+          "border-[1.5px] border-ink bg-surface text-ink hover:bg-ink hover:text-white rounded-[50px]",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-11 rounded-md px-8",
-        icon: "h-10 w-10",
+        default: "h-10 px-6 py-2",
+        sm: "h-9 px-4 text-[13px]",
+        lg: "h-12 px-8 text-base",
+        icon: "h-10 w-10 rounded-[12px]",
       },
     },
     defaultVariants: {
@@ -41,22 +49,6 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
-    
-    // Wrap with framer motion for micro-interactions if not asChild
-    // To support asChild with framer-motion requires custom polymorphic components,
-    // so we keep it simple here.
-    if (!asChild) {
-      return (
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          className={cn(buttonVariants({ variant, size, className }))}
-          ref={ref as any}
-          {...(props as any)}
-        />
-      );
-    }
-
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}

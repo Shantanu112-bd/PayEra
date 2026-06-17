@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import freighterApi from "@stellar/freighter-api";
 const { isConnected, requestAccess, getAddress } = freighterApi;
 import { fetchBalances, BalanceMap, getStarBalanceFromContract } from "@/lib/stellar";
+import { useAppStore } from "@/lib/store";
 
 interface StellarWalletContextType {
   publicKey: string | null;
@@ -53,27 +54,34 @@ export function StellarWalletProvider({ children }: { children: React.ReactNode 
     }
   }, [publicKey]);
 
+  const { currentUserId } = useAppStore();
+
   const connect = async () => {
-    if (!isWalletInstalled) {
-      alert("Please install Freighter wallet extension.");
-      return;
-    }
-    
     setIsConnecting(true);
     try {
+      if (!isWalletInstalled) {
+        // Fallback for demo when no wallet is installed
+        setPublicKey(currentUserId);
+        setIsWalletInstalled(true);
+        return;
+      }
+      
       const access = await requestAccess();
       if (access) {
         const result = await getAddress();
         if (result && !result.error && result.address) {
           setPublicKey(result.address);
         } else {
-          console.error(result?.error || "Failed to get address");
+          console.warn(result?.error || "Failed to get address, using demo user fallback.");
+          setPublicKey(currentUserId);
         }
       } else {
-        console.error("User declined connection");
+        console.warn("User declined connection, using demo user fallback.");
+        setPublicKey(currentUserId);
       }
     } catch (e) {
-      console.error("Wallet connection failed", e);
+      console.warn("Wallet connection failed, using demo user fallback.", e);
+      setPublicKey(currentUserId);
     } finally {
       setIsConnecting(false);
     }

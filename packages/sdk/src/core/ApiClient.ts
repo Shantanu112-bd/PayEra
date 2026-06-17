@@ -5,17 +5,20 @@ export interface ApiClientConfig {
   baseUrl: string;
   timeout?: number;
   getToken?: () => string | null | Promise<string | null>;
+  defaultHeaders?: Record<string, string>;
 }
 
 export class ApiClient {
   private baseUrl: string;
   private timeout: number;
   private getToken: (() => string | null | Promise<string | null>) | undefined;
+  private defaultHeaders: Record<string, string>;
 
   constructor(config: ApiClientConfig) {
     this.baseUrl = config.baseUrl;
     this.timeout = config.timeout || 10000;
     this.getToken = config.getToken;
+    this.defaultHeaders = config.defaultHeaders ?? {};
   }
 
   private async fetchWithTimeout(resource: string, options: RequestInit): Promise<Response> {
@@ -41,6 +44,11 @@ export class ApiClient {
     const headers = new Headers(options.headers);
     if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
+    }
+
+    // Apply defaultHeaders (e.g. x-user-id for mock auth)
+    for (const [key, val] of Object.entries(this.defaultHeaders)) {
+      if (!headers.has(key)) headers.set(key, val);
     }
 
     if (this.getToken) {

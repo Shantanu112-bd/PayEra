@@ -13,10 +13,10 @@ interface ChartCardProps extends React.HTMLAttributes<HTMLDivElement> {
 
 export function ChartCard({ title, description, children, className, contentClassName, ...props }: ChartCardProps) {
   return (
-    <Card className={cn("bg-[#111111] border-white/10", className)} {...props}>
+    <Card className={cn("bg-white", className)} {...props}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-lg font-semibold tracking-tight text-white">{title}</CardTitle>
-        {description && <CardDescription className="text-white/50">{description}</CardDescription>}
+        <CardTitle className="text-lg font-semibold tracking-tight text-ink font-[family-name:var(--font-ibm-plex-mono)]">{title}</CardTitle>
+        {description && <CardDescription className="text-muted">{description}</CardDescription>}
       </CardHeader>
       <CardContent className={cn("pt-4 pb-6", contentClassName)}>
         {children}

@@ -3,81 +3,89 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { 
-  CampaignCard,
-  Skeleton,
-  MetricCard
-} from "@cryptopay/ui";
-import { Plus } from "lucide-react";
+import { CampaignCard, Skeleton, EmptyState, Button } from "@cryptopay/ui";
+import { Plus, Gift, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { motion } from "framer-motion";
+
+/* ─── SECTION TAG ─── */
+function SectionTag({ label }: { label: string }) {
+  return (
+    <div className="section-tag">
+      <span className="tag-marker" />
+      <span className="tag-line" />
+      <span className="tag-label">{label}</span>
+    </div>
+  );
+}
 
 const DEMO_MERCHANT_ID = "11111111-1111-1111-1111-111111111111";
 
-export default function MerchantCampaignsPage() {
-  const { data: metrics, isLoading: metricsLoading } = useQuery({
-    queryKey: ["merchant-campaign-metrics", DEMO_MERCHANT_ID],
-    queryFn: () => cryptoPaySdk.analytics.getCampaignMetrics(DEMO_MERCHANT_ID),
-  });
-
-  const { data: campaigns, isLoading: campaignsLoading } = useQuery({
-    queryKey: ["campaigns"],
+export default function CampaignsPage() {
+  const [activeTab, setActiveTab] = React.useState("ALL");
+  const { data: campaigns, isLoading } = useQuery({
+    queryKey: ["campaigns", DEMO_MERCHANT_ID],
     queryFn: () => cryptoPaySdk.campaigns.listCampaigns(),
   });
 
+  const tabs = ["ALL", "Active", "Scheduled", "Completed"];
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-6">
+    <motion.div 
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="space-y-8"
+    >
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white">Campaigns</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Join STAR reward campaigns to attract new customers.</p>
+          <SectionTag label="CAMPAIGNS" />
+          <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-ibm-plex-mono)] text-ink">Reward Campaigns</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-900/20 h-9 px-4 py-2">
-            <Plus className="mr-2 h-4 w-4" /> Create Custom Campaign
+        <Link href="/merchant/campaigns/new">
+          <Button variant="accent">
+            <Plus className="mr-2 h-4 w-4" /> New Campaign →
+          </Button>
+        </Link>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="pill-tabs">
+        {tabs.map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`pill-tab ${activeTab === tab ? "pill-tab-active" : ""}`}
+          >
+            {tab}
           </button>
-        </div>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {metricsLoading ? (
-          Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-32 w-full rounded-xl" />)
-        ) : (
-          <>
-            <MetricCard 
-              title="Active Campaigns" 
-              value={(metrics?.activeCampaignsCount || 0).toString()} 
-            />
-            <MetricCard 
-              title="Merchants Participating" 
-              value={(metrics?.merchantsParticipating || 0).toString()} 
-            />
-            <MetricCard 
-              title="Total Budget (STAR)" 
-              value={`${(metrics?.totalBudget || 0).toLocaleString("en-US")} STAR`} 
-            />
-            <MetricCard 
-              title="Total Distributed" 
-              value={`${(metrics?.totalSpent || 0).toLocaleString("en-US")} STAR`} 
-            />
-          </>
-        )}
-      </div>
-
-      <div className="space-y-4">
-        <h2 className="text-xl font-semibold">Available Campaigns</h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {campaignsLoading ? (
-            Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-64 w-full rounded-xl" />)
-          ) : campaigns?.data.length === 0 ? (
-            <div className="col-span-full text-center p-12 text-muted-foreground bg-[#111111] rounded-xl border border-white/10">
-              No active campaigns right now.
-            </div>
-          ) : (
-            campaigns?.data.map((campaign) => (
-              <CampaignCard key={campaign.id} campaign={campaign} />
-            ))
-          )}
+      {/* Campaign Grid */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-[240px] w-full rounded-[20px] border-[1.5px] border-ink/10" />)}
         </div>
-      </div>
-    </div>
+      ) : ((campaigns as any)?.data ?? []).length === 0 ? (
+        <EmptyState 
+          icon={<Sparkles className="h-8 w-8" />}
+          title="No Campaigns Yet" 
+          description="Create reward campaigns to incentivize payments and increase customer retention."
+          action={
+            <Link href="/merchant/campaigns/new">
+              <Button variant="accent"><Plus className="mr-2 h-4 w-4" /> Create First Campaign →</Button>
+            </Link>
+          }
+        />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {((campaigns as any)?.data ?? []).map((campaign: any) => (
+            <CampaignCard key={campaign.id} campaign={campaign} />
+          ))}
+        </div>
+      )}
+    </motion.div>
   );
 }

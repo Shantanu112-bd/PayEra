@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Campaign } from "@cryptopay/types";
-import { Gift, Calendar, ArrowRight } from "lucide-react";
+import { Gift, ArrowRight } from "lucide-react";
 import { Badge } from "../foundation/Badge";
 import Link from "next/link";
 
@@ -9,46 +9,60 @@ interface CampaignCardProps {
 }
 
 export function CampaignCard({ campaign }: CampaignCardProps) {
-  const isComplete = campaign.status === "COMPLETED";
   const isActive = campaign.status === "ACTIVE";
+  const budgetUsed = Number(campaign.budgetStar) > 0 
+    ? ((Number(campaign.budgetStar) - Number(campaign.rewardAmountStar)) / Number(campaign.budgetStar)) * 100 
+    : 0;
 
   return (
-    <div className="flex flex-col bg-[#111111] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition-all duration-300 relative overflow-hidden group">
-      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 to-indigo-500 opacity-50"></div>
-      
+    <div className="flex flex-col bg-white border-[1.5px] border-ink rounded-[20px] p-6 card-hover relative overflow-hidden">
+      {/* Header */}
       <div className="flex justify-between items-start mb-4">
-        <div className="p-2.5 bg-blue-500/10 rounded-xl text-blue-400">
+        <div className="icon-box">
           <Gift className="w-5 h-5" />
         </div>
-        <Badge variant={isActive ? "default" : isComplete ? "outline" : "secondary"}>
-          {campaign.status}
+        <Badge variant={isActive ? "default" : "secondary"}>
+          <span className="flex items-center gap-1.5">
+            {isActive && <span className="status-dot !w-[6px] !h-[6px]" />}
+            {campaign.status}
+          </span>
         </Badge>
       </div>
 
+      {/* Content */}
       <div className="flex-1">
-        <h3 className="text-lg font-bold text-white group-hover:text-blue-400 transition-colors">{campaign.name}</h3>
-        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+        <h3 className="text-lg font-bold text-ink font-[family-name:var(--font-ibm-plex-mono)]">{campaign.name}</h3>
+        <p className="text-sm text-muted mt-1 line-clamp-2">
           {campaign.description || "Earn STAR rewards by participating in this campaign."}
         </p>
       </div>
 
-      <div className="mt-6 pt-4 border-t border-white/10 grid grid-cols-2 gap-2 text-sm">
+      {/* Stats */}
+      <div className="mt-6 pt-4 border-t border-ink grid grid-cols-2 gap-2 text-sm">
         <div>
-          <span className="block text-xs text-muted-foreground mb-0.5">Reward</span>
-          <span className="font-semibold text-amber-400">{campaign.rewardAmountStar.toString()} STAR</span>
+          <span className="block text-xs text-muted mb-0.5 uppercase tracking-wider font-[family-name:var(--font-ibm-plex-mono)]">Reward</span>
+          <span className="font-semibold text-ink font-[family-name:var(--font-ibm-plex-mono)]">{campaign.rewardAmountStar.toString()} STAR</span>
         </div>
         <div>
-          <span className="block text-xs text-muted-foreground mb-0.5">Budget</span>
-          <span className="font-semibold text-white">{campaign.budgetStar.toString()} STAR</span>
+          <span className="block text-xs text-muted mb-0.5 uppercase tracking-wider font-[family-name:var(--font-ibm-plex-mono)]">Budget</span>
+          <span className="font-semibold text-ink font-[family-name:var(--font-ibm-plex-mono)]">{campaign.budgetStar.toString()} STAR</span>
         </div>
       </div>
 
+      {/* Budget bar */}
+      <div className="mt-3">
+        <div className="progress-bar-track">
+          <div className="progress-bar-fill" style={{ width: `${budgetUsed}%` }} />
+        </div>
+      </div>
+
+      {/* CTA */}
       <Link 
         href={`/merchant/campaigns/${campaign.id}`} 
-        className="mt-4 flex items-center justify-between px-4 py-2.5 bg-white/5 hover:bg-white/10 rounded-lg text-sm font-medium transition-colors"
+        className="mt-4 btn-primary !py-2.5 !text-[13px] justify-between"
       >
         <span>View Details</span>
-        <ArrowRight className="w-4 h-4 opacity-70 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+        <ArrowRight className="w-4 h-4" />
       </Link>
     </div>
   );

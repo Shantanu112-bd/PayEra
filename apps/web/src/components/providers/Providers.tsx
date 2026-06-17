@@ -4,18 +4,18 @@ import * as React from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "../../lib/query-client";
 import { initializeSdk } from "@cryptopay/sdk";
-
-// Initialize SDK globally for the client environment
-// In a real app we'd pass dynamic auth tokens here via an interceptor
-const sdk = initializeSdk({
-  baseUrl: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001",
-});
-
-// Since the sdk is a singleton, we can just initialize it once.
-// However, to satisfy auth requirements for demo, we mock an interceptor that always
-// sends the hardcoded generic token if present.
-
 import { StellarWalletProvider } from "./StellarWalletProvider";
+
+// Demo User ID — seeded in DB, used as the mock-auth identity
+const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
+
+// Initialize SDK with demo auth header so all requests pass the MockAuthGuard
+const sdk = initializeSdk({
+  baseUrl: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/api/v1`,
+  defaultHeaders: {
+    "x-user-id": DEMO_USER_ID,
+  },
+});
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
