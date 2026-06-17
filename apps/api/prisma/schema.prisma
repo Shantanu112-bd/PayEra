@@ -69,9 +69,11 @@ enum CampaignStatus {
 }
 
 enum CampaignRewardType {
-  SPEND_THRESHOLD
-  REFERRAL
-  BONUS
+  WELCOME_BONUS
+  DOUBLE_REWARDS
+  SPEND_AND_EARN
+  REFERRAL_CAMPAIGN
+  CUSTOM
 }
 
 enum TransactionStatus {
@@ -282,7 +284,7 @@ model Campaign {
   name                 String             @db.VarChar(160)
   description          String?            @db.Text
   status               CampaignStatus     @default(DRAFT)
-  rewardType           CampaignRewardType @default(SPEND_THRESHOLD) @map("reward_type")
+  rewardType           CampaignRewardType @default(SPEND_AND_EARN) @map("reward_type")
   thresholdAmountPaise BigInt             @map("threshold_amount_paise")
   rewardAmountStar     BigInt             @map("reward_amount_star")
   budgetStar           BigInt             @map("budget_star")

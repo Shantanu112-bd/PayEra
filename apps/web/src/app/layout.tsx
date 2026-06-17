@@ -1,14 +1,25 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, IBM_Plex_Mono } from "next/font/google";
 import { Providers } from "../components/providers/Providers";
 import { AppShell } from "../components/layout/AppShell";
-import "../../styles/globals.css";
+import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ 
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const ibmPlexMono = IBM_Plex_Mono({ 
+  subsets: ["latin"],
+  weight: ["400", "600", "700"],
+  variable: "--font-ibm-plex-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
-  title: "CryptoPay",
-  description: "Spend digital assets through local payment rails.",
+  title: "CryptoPay Network — Pay with Crypto, Earn with Every Scan",
+  description: "CryptoPay brings instant Stellar payments and STAR token rewards to every merchant. Pay with USDC or XLM, earn loyalty tokens, settle instantly on-chain.",
 };
 
 export default function RootLayout({
@@ -17,8 +28,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.className} bg-background text-foreground min-h-screen antialiased selection:bg-blue-500/30`}>
+    <html lang="en" className={`${inter.variable} ${ibmPlexMono.variable}`}>
+      <body className="bg-page text-ink min-h-screen antialiased">
         <Providers>
           <AppShell>
             {children}

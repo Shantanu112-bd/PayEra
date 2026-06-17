@@ -157,26 +157,46 @@ export class CampaignsService {
   async analytics(owner: AuthenticatedPrincipal, campaignId: string) {
     await this.findCampaign(owner, campaignId);
 
-    const [transactionStats, rewards, merchants] = await this.prisma.$transaction([
+    const [transactionStats, merchants, recentRewards] = await this.prisma.$transaction([
       this.prisma.transaction.aggregate({
         _count: { _all: true },
         _sum: { amountInPaise: true },
         where: { campaignId },
       }),
-      this.prisma.reward.aggregate({
-        _sum: { starAmount: true },
-        where: { campaignId },
-      }),
       this.prisma.campaignMerchant.count({
         where: { campaignId, isActive: true },
       }),
+      this.prisma.reward.findMany({
+        where: { campaignId, status: "MINTED" },
+        select: { starAmount: true, createdAt: true },
+      })
     ]);
+
+    let totalDistributedSTAR = 0;
+    const seriesMap = new Map<string, number>();
+
+    for (const reward of recentRewards) {
+      const dateStr = reward.createdAt.toISOString().split("T")[0]!;
+      const amount = Number(reward.starAmount);
+      totalDistributedSTAR += amount;
+
+      if (!seriesMap.has(dateStr)) {
+        seriesMap.set(dateStr, 0);
+      }
+      seriesMap.set(dateStr, seriesMap.get(dateStr)! + amount);
+    }
+
+    const timelineSeries = Array.from(seriesMap.entries())
+      .map(([day, distributed]) => ({ day, distributed }))
+      .sort((a, b) => a.day.localeCompare(b.day));
 
     return {
       merchants,
-      rewardsIssuedStar: rewards._sum.starAmount ?? 0,
+      participantCount: transactionStats._count._all, // Representing participating unique transactions or users
+      totalDistributedSTAR,
       revenueInfluencedPaise: transactionStats._sum.amountInPaise ?? 0,
       transactions: transactionStats._count._all,
+      timelineSeries,
     };
   }
 

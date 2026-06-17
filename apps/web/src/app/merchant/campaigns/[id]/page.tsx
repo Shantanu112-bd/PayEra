@@ -12,7 +12,7 @@ export default function CampaignDetailPage() {
   const params = useParams();
   const id = params.id as string;
 
-  const { data: campaign, isLoading: campaignLoading } = useQuery({
+  const { data: campaign, isLoading: campaignLoading, refetch: refetchCampaign } = useQuery({
     queryKey: ["campaign", id],
     queryFn: () => cryptoPaySdk.campaigns.getCampaign(id),
   });
@@ -22,14 +22,7 @@ export default function CampaignDetailPage() {
     queryFn: () => cryptoPaySdk.campaigns.getCampaignAnalytics(id),
   });
 
-  // Mock timeline data for the chart since the backend might not return time series
-  const timelineData = [
-    { day: "Day 1", distributed: 120 },
-    { day: "Day 2", distributed: 350 },
-    { day: "Day 3", distributed: 410 },
-    { day: "Day 4", distributed: 800 },
-    { day: "Day 5", distributed: 1150 },
-  ];
+  const timelineData = analytics?.timelineSeries || [];
 
   if (campaignLoading) {
     return (
@@ -48,6 +41,18 @@ export default function CampaignDetailPage() {
     return <div className="text-white">Campaign not found</div>;
   }
 
+  const handleAction = async (action: 'activate' | 'pause' | 'complete') => {
+    try {
+      if (action === 'activate') await cryptoPaySdk.campaigns.activateCampaign(id);
+      if (action === 'pause') await cryptoPaySdk.campaigns.pauseCampaign(id);
+      if (action === 'complete') await cryptoPaySdk.campaigns.completeCampaign(id);
+      refetchCampaign();
+    } catch (e) {
+      console.error(e);
+      alert(`Failed to ${action} campaign`);
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500 max-w-5xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-6">
@@ -62,21 +67,21 @@ export default function CampaignDetailPage() {
                 {campaign.status}
               </span>
             </div>
-            <p className="text-muted-foreground mt-1 text-sm">Reward Multiplier: {campaign.rewardMultiplier}x</p>
+            <p className="text-muted-foreground mt-1 text-sm">Reward Amount: {campaign.rewardAmountStar} STAR</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           {campaign.status === "ACTIVE" ? (
-            <button className="flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 h-9 px-4 py-2">
+            <button onClick={() => handleAction('pause')} className="flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 h-9 px-4 py-2">
               <Pause className="mr-2 h-4 w-4" /> Pause Campaign
             </button>
           ) : (
-            <button className="flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-emerald-600 hover:bg-emerald-700 text-white shadow h-9 px-4 py-2">
+            <button onClick={() => handleAction('activate')} className="flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-emerald-600 hover:bg-emerald-700 text-white shadow h-9 px-4 py-2">
               <Play className="mr-2 h-4 w-4" /> Activate
             </button>
           )}
-          <button className="flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-white/10 bg-black hover:bg-white/5 text-white h-9 px-4 py-2">
+          <button onClick={() => handleAction('complete')} className="flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-white/10 bg-black hover:bg-white/5 text-white h-9 px-4 py-2">
             <CheckCircle className="mr-2 h-4 w-4" /> Mark Complete
           </button>
         </div>
@@ -85,7 +90,7 @@ export default function CampaignDetailPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
         <MetricCard 
           title="Total Budget" 
-          value={`${campaign.budgetUsdc.toString()} USDC`} 
+          value={`${campaign.budgetStar.toString()} STAR`} 
         />
         <MetricCard 
           title="STAR Distributed" 

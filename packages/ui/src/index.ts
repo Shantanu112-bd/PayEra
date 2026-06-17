@@ -15,6 +15,7 @@ export * from "./cards/Card";
 export * from "./cards/MetricCard";
 export * from "./cards/TransactionCard";
 export * from "./cards/WalletCard";
+export * from "./cards/CampaignCard";
 
 // Rewards
 export * from "./rewards/RewardBalanceCard";

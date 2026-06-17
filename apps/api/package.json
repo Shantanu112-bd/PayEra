@@ -13,7 +13,7 @@
     "typecheck": "prisma generate && tsc --noEmit"
   },
   "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@cryptopay/sdk": "*",

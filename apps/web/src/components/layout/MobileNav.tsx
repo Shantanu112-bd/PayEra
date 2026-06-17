@@ -27,7 +27,7 @@ export function MobileNav() {
   const navItems = isMerchant ? merchantNavItems : consumerNavItems;
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-xl border-t border-white/10 pb-safe z-50">
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-page/95 backdrop-blur-sm border-t border-ink/10 pb-safe z-50">
       <div className="flex items-center justify-around px-2 py-2">
         {navItems.map((item) => {
           const isActive = item.href === "/merchant" ? pathname === "/merchant" : pathname.startsWith(item.href);
@@ -36,18 +36,18 @@ export function MobileNav() {
               key={item.name}
               href={item.href}
               className={cn(
-                "flex flex-col items-center gap-1 p-2 rounded-lg transition-all duration-200",
+                "flex flex-col items-center gap-1 p-2 rounded-[12px] transition-all duration-200",
                 isActive 
-                  ? "text-blue-400" 
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "text-ink font-semibold" 
+                  : "text-muted hover:text-ink"
               )}
             >
               <item.icon className="h-5 w-5" />
-              <span className="text-[10px] font-medium">{item.name}</span>
+              <span className="text-[10px] font-medium font-[family-name:var(--font-ibm-plex-mono)]">{item.name}</span>
             </Link>
           );
         })}
       </div>
-    </div>
+    </nav>
   );
 }

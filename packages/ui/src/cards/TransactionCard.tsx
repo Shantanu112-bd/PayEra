@@ -1,8 +1,6 @@
 import * as React from "react";
 import { Transaction } from "@cryptopay/types";
-import { Card, CardContent } from "./Card";
 import { Badge } from "../foundation/Badge";
-import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { cn } from "../lib/utils";
 
 export interface TransactionCardProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -12,29 +10,43 @@ export interface TransactionCardProps extends React.HTMLAttributes<HTMLDivElemen
 
 export function TransactionCard({ transaction, isOutbound = true, className, ...props }: TransactionCardProps) {
   const amount = (parseInt(transaction.amountInPaise) / 100).toFixed(2);
-  const Icon = isOutbound ? ArrowUpRight : ArrowDownRight;
+  const merchantName = transaction.merchantId || "Payment";
+  const initials = merchantName.slice(0, 2).toUpperCase();
   
   return (
-    <Card className={cn("p-4 flex items-center justify-between hover:bg-white/10 transition-colors cursor-pointer", className)} {...props}>
+    <div 
+      className={cn(
+        "p-4 flex items-center justify-between hover:bg-surface transition-colors cursor-pointer border-b border-border-light last:border-b-0",
+        className
+      )} 
+      {...props}
+    >
       <div className="flex items-center gap-4">
-        <div className={cn("p-3 rounded-full", isOutbound ? "bg-red-500/10 text-red-500" : "bg-green-500/10 text-green-500")}>
-          <Icon className="h-5 w-5" />
+        {/* Bordered circle with mono initials */}
+        <div className="w-10 h-10 rounded-full border-[1.5px] border-ink flex items-center justify-center flex-shrink-0">
+          <span className="font-[family-name:var(--font-ibm-plex-mono)] text-sm font-semibold text-ink">
+            {initials}
+          </span>
         </div>
         <div>
-          <p className="font-semibold">{transaction.merchantId || "Payment"}</p>
-          <p className="text-xs text-muted-foreground">
-            {new Date(transaction.createdAt).toLocaleDateString()} • {transaction.rail}
+          <p className="font-semibold text-ink">{merchantName}</p>
+          <p className="text-xs text-muted font-[family-name:var(--font-ibm-plex-mono)]">
+            {new Date(transaction.createdAt).toLocaleDateString("en-US", { 
+              month: "short", day: "numeric" 
+            })} · {new Date(transaction.createdAt).toLocaleTimeString("en-US", {
+              hour: "numeric", minute: "2-digit"
+            })}
           </p>
         </div>
       </div>
       <div className="text-right">
-        <p className={cn("font-bold", isOutbound ? "" : "text-green-500")}>
-          {isOutbound ? "-" : "+"}{amount} INR
+        <p className="font-bold font-[family-name:var(--font-ibm-plex-mono)] text-ink">
+          {isOutbound ? "-" : "+"}₹{amount}
         </p>
         <Badge variant={transaction.status === "COMPLETED" ? "success" : "secondary"} className="mt-1">
           {transaction.status}
         </Badge>
       </div>
-    </Card>
+    </div>
   );
 }

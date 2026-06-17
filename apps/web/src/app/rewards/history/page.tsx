@@ -66,7 +66,7 @@ export default function RewardHistoryPage() {
                     </div>
                   </div>
                   <div className="col-span-3">
-                    <span className="font-bold text-emerald-400">+{reward.amount.toString()} STAR</span>
+                    <span className="font-semibold text-emerald-400">+{reward.starAmount} STAR</span>
                   </div>
                   <div className="col-span-3 sm:text-right text-xs text-muted-foreground">
                     {new Date(reward.createdAt).toLocaleDateString()}

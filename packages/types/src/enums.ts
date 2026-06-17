@@ -60,9 +60,11 @@ export enum CampaignStatus {
 }
 
 export enum CampaignRewardType {
-  SPEND_THRESHOLD = "SPEND_THRESHOLD",
-  REFERRAL = "REFERRAL",
-  BONUS = "BONUS",
+  WELCOME_BONUS = "WELCOME_BONUS",
+  DOUBLE_REWARDS = "DOUBLE_REWARDS",
+  SPEND_AND_EARN = "SPEND_AND_EARN",
+  REFERRAL_CAMPAIGN = "REFERRAL_CAMPAIGN",
+  CUSTOM = "CUSTOM"
 }
 
 export enum TransactionStatus {

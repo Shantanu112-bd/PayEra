@@ -2,7 +2,8 @@ import {
   DashboardMetricsDto, 
   RevenueMetricsDto, 
   RewardMetricsDto, 
-  CampaignMetricsDto 
+  CampaignMetricsDto,
+  ConsumerRewardMetricsDto
 } from "@cryptopay/types";
 import { ApiClient } from "../core/ApiClient";
 
@@ -27,5 +28,9 @@ export class AnalyticsSdk {
   async getCampaignMetrics(merchantId?: string): Promise<CampaignMetricsDto> {
     const url = merchantId ? `/analytics/campaigns?merchantId=${merchantId}` : "/analytics/campaigns";
     return this.client.get<CampaignMetricsDto>(url);
+  }
+
+  async getConsumerRewardMetrics(userId: string): Promise<ConsumerRewardMetricsDto> {
+    return this.client.get<ConsumerRewardMetricsDto>(`/analytics/consumer-rewards?userId=${userId}`);
   }
 }
