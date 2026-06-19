@@ -9,7 +9,8 @@ COPY package*.json ./
 COPY . .
 
 # Install dependencies (workspaces handled automatically by npm 7+)
-RUN npm install
+# --include=dev ensures Prisma and TypeScript are installed even if Railway sets NODE_ENV=production
+RUN npm install --include=dev
 
 # Generate Prisma client
 RUN cd apps/api && npx prisma generate
