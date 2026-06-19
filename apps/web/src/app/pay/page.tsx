@@ -4,17 +4,19 @@ import * as React from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
 import { PaymentSuccess, Button, Skeleton } from "@cryptopay/ui";
-import { QrCode, ArrowRight, ArrowLeft, Star, Loader2, Check } from "lucide-react";
+import { ArrowLeft, Star, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore } from "../../lib/store";
+import { parseUpiQr, isUpiVpa } from "../../lib/upi-parser";
+import dynamic from "next/dynamic";
+
+const QrScanner = dynamic(
+  () => import("../../components/payment/QrScanner").then((mod) => mod.QrScanner),
+  { ssr: false }
+);
 
 type PayStep = "SCAN" | "QUOTE" | "ASSET_SELECTION" | "CONFIRM" | "PROCESSING" | "SUCCESS" | "REWARD";
-
-// Hardcoded merchant details for demo flow
-const DEMO_MERCHANT_ID = "11111111-1111-1111-1111-111111111111"; // Mock UUID
-const DEMO_VPA = "chaipoint@upi";
-const DEMO_AMOUNT_PAISE = "20000"; // 200 INR
 
 export default function PayPage() {
   const router = useRouter();
@@ -23,10 +25,17 @@ export default function PayPage() {
   const [selectedAsset, setSelectedAsset] = React.useState<"USDC" | "XLM">("USDC");
   const [transactionId, setTransactionId] = React.useState<string | null>(null);
 
+  // Scanned UPI QR states
+  const [scannedVpa, setScannedVpa] = React.useState<string>("");
+  const [scannedMerchantName, setScannedMerchantName] = React.useState<string>("");
+  const [merchantId, setMerchantId] = React.useState<string | null>(null);
+  const [amountPaise, setAmountPaise] = React.useState<string>("20000"); // Default 200 INR (20000 paise)
+  const [qrPayload, setQrPayload] = React.useState<string>("");
+
   // Fetch Quote when entering QUOTE or CONFIRM states
   const { data: quote, isLoading: quoteLoading } = useQuery({
-    queryKey: ["quote", selectedAsset, DEMO_AMOUNT_PAISE],
-    queryFn: () => cryptoPaySdk.transactions.getQuote({ assetIn: selectedAsset, amountInPaise: DEMO_AMOUNT_PAISE }),
+    queryKey: ["quote", selectedAsset, amountPaise],
+    queryFn: () => cryptoPaySdk.transactions.getQuote({ assetIn: selectedAsset, amountInPaise: amountPaise }),
     enabled: step === "QUOTE" || step === "CONFIRM" || step === "ASSET_SELECTION",
   });
 
@@ -38,28 +47,55 @@ export default function PayPage() {
 
   // Transaction Creation Mutation
   const createTxMutation = useMutation({
-    mutationFn: () => cryptoPaySdk.transactions.createTransaction({
-      merchantId: DEMO_MERCHANT_ID,
-      assetIn: selectedAsset,
-      amountInPaise: DEMO_AMOUNT_PAISE,
-      merchantUpiVpa: DEMO_VPA,
-      ...(wallets?.data?.[0]?.id ? { walletId: wallets.data[0].id } : {}),
-    }),
+    mutationFn: () => {
+      const payload: any = {
+        merchantId: merchantId || "11111111-1111-1111-1111-111111111111",
+        assetIn: selectedAsset,
+        amountInPaise: amountPaise,
+        merchantUpiVpa: scannedVpa,
+      };
+      if (qrPayload) {
+        payload.qrPayload = qrPayload;
+      }
+      if (wallets?.data?.[0]?.id) {
+        payload.walletId = wallets.data[0].id;
+      }
+      return cryptoPaySdk.transactions.createTransaction(payload);
+    },
     onSuccess: async (data: any) => {
       setTransactionId(data.id);
       setStep("PROCESSING");
-      // Fast-forward processing via simulate
-      try {
-        await cryptoPaySdk.transactions.simulateTransaction(data.id);
-      } catch (e) {
-        console.warn("Simulation failed, likely due to mock DB state", e);
-      }
-      // Wait for dramatic effect
-      setTimeout(() => {
-        setStep("SUCCESS");
+      
+      // Poll transaction status every 2 seconds
+      const pollInterval = setInterval(async () => {
+        try {
+          const tx = await cryptoPaySdk.transactions.getTransaction(data.id);
+          if (tx.status === "COMPLETED") {
+            clearInterval(pollInterval);
+            setStep("SUCCESS");
+          } else if (tx.status === "FAILED" || tx.status === "CANCELLED") {
+            clearInterval(pollInterval);
+            alert("Payment failed: " + tx.failureMessage);
+            setStep("SCAN");
+          }
+        } catch (e) {
+          console.error("Poll error", e);
+        }
       }, 2000);
+
+      // Safety timeout after 60 seconds
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        setStep((currentStep) => {
+          if (currentStep === "PROCESSING") {
+            alert("Payment timed out. Please try again.");
+            return "SCAN";
+          }
+          return currentStep;
+        });
+      }, 60000);
     },
-    onError: (err) => {
+    onError: (err: any) => {
       console.error("Tx Creation Failed", err);
       alert("Payment failed: " + err.message);
       setStep("SCAN");
@@ -67,8 +103,46 @@ export default function PayPage() {
   });
 
   // Handlers
-  const handleScan = () => {
-    setStep("QUOTE");
+  const handleScanSuccess = async (decodedText: string) => {
+    console.log("QR Scan Success:", decodedText);
+    
+    const parsed = parseUpiQr(decodedText);
+    if (!parsed.isValid && !isUpiVpa(decodedText)) {
+      alert("Invalid QR code. Please scan a valid UPI QR code.");
+      return;
+    }
+
+    const vpa = parsed.isValid ? parsed.upiVpa : decodedText;
+
+    // Look up real merchant by VPA
+    try {
+      const merchant = await cryptoPaySdk.merchants.findByVpa(vpa);
+      if (merchant) {
+        setScannedVpa(vpa);
+        setScannedMerchantName(merchant.displayName);
+        setMerchantId(merchant.id); // real merchant ID from DB
+      } else {
+        // VPA not in our network yet — still allow payment with VPA only
+        setScannedVpa(vpa);
+        setScannedMerchantName(parsed.merchantName || vpa);
+        setMerchantId(null); // will use VPA-only flow
+      }
+      setQrPayload(parsed.isValid ? decodedText : `upi://pay?pa=${vpa}&pn=${vpa}`);
+      if (parsed.amount) {
+        setAmountPaise((parsed.amount * 100).toFixed(0));
+      }
+      setStep("QUOTE");
+    } catch (e) {
+      console.error("Merchant lookup failed", e);
+      setScannedVpa(vpa);
+      setScannedMerchantName(parsed.isValid ? parsed.merchantName || vpa : vpa);
+      setMerchantId(null);
+      setQrPayload(parsed.isValid ? decodedText : `upi://pay?pa=${vpa}&pn=${vpa}`);
+      if (parsed.amount) {
+        setAmountPaise((parsed.amount * 100).toFixed(0));
+      }
+      setStep("QUOTE");
+    }
   };
 
   const handleAssetSelect = (asset: "USDC" | "XLM") => {
@@ -90,36 +164,25 @@ export default function PayPage() {
         {/* STEP 1: SCAN */}
         {step === "SCAN" && (
           <motion.div key="scan" variants={slideVariants} initial="enter" animate="center" exit="exit" className="w-full">
-            <div className="bg-ink rounded-[20px] p-8 relative overflow-hidden">
-              {/* Corner brackets */}
-              <div className="absolute top-4 left-4 w-8 h-8 border-l-2 border-t-2 border-white" />
-              <div className="absolute top-4 right-4 w-8 h-8 border-r-2 border-t-2 border-white" />
-              <div className="absolute bottom-4 left-4 w-8 h-8 border-l-2 border-b-2 border-white" />
-              <div className="absolute bottom-4 right-4 w-8 h-8 border-r-2 border-b-2 border-white" />
-              
-              {/* Scan line */}
-              <motion.div 
-                className="absolute left-6 right-6 h-[1px] bg-white/80"
-                animate={{ top: ["15%", "85%", "15%"] }}
-                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            <div className="bg-ink rounded-[20px] p-6 relative overflow-hidden">
+              <QrScanner
+                onScanSuccess={handleScanSuccess}
+                onScanError={(err) => {
+                  console.error("Scanner Error:", err);
+                }}
               />
-
-              <div className="text-center py-12 relative z-10">
-                <div className="mx-auto mb-6 w-20 h-20 border-[1.5px] border-white/30 rounded-[16px] flex items-center justify-center">
-                  <QrCode className="h-10 w-10 text-white" />
-                </div>
-                <h2 className="text-2xl font-bold mb-2 text-white font-[family-name:var(--font-ibm-plex-mono)]">Scan to Pay</h2>
-                <p className="text-white/60 mb-8 text-sm">
-                  Scan any merchant's UPI QR code to instantly pay with your crypto wallet.
-                </p>
-              </div>
             </div>
             <div className="mt-4 space-y-3">
-              <button onClick={handleScan} className="btn-accent w-full !py-3.5">
-                USE DEMO QR →
-              </button>
-              <button className="btn-primary w-full !py-3">
-                Enter code manually
+              <button 
+                onClick={() => {
+                  const manualVpa = prompt("Enter UPI VPA manually (e.g. merchant@upi):");
+                  if (manualVpa) {
+                    handleScanSuccess(manualVpa);
+                  }
+                }}
+                className="btn-primary w-full !py-3"
+              >
+                Enter VPA manually
               </button>
             </div>
           </motion.div>
@@ -136,20 +199,41 @@ export default function PayPage() {
                 </button>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full border-[1.5px] border-ink flex items-center justify-center">
-                    <span className="font-[family-name:var(--font-ibm-plex-mono)] font-bold text-sm">CP</span>
+                    <span className="font-[family-name:var(--font-ibm-plex-mono)] font-bold text-sm">
+                      {scannedMerchantName ? scannedMerchantName.slice(0, 2).toUpperCase() : "MP"}
+                    </span>
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold leading-tight font-[family-name:var(--font-ibm-plex-mono)]">Chai Point</h2>
+                    <h2 className="text-lg font-bold leading-tight font-[family-name:var(--font-ibm-plex-mono)] truncate max-w-[180px]">
+                      {scannedMerchantName || "Merchant"}
+                    </h2>
                     <span className="text-[11px] border-[1.5px] border-ink rounded-[50px] px-2 py-0.5 font-[family-name:var(--font-ibm-plex-mono)]">QR Verified</span>
                   </div>
                 </div>
               </div>
 
               <div className="p-6 space-y-6">
-                {/* Amount */}
+                {/* Amount Input */}
                 <div className="text-center">
-                  <p className="text-xs text-muted uppercase tracking-wider font-[family-name:var(--font-ibm-plex-mono)] mb-2">Amount</p>
-                  <p className="text-5xl font-bold font-[family-name:var(--font-ibm-plex-mono)] text-ink">₹500.00</p>
+                  <p className="text-xs text-muted uppercase tracking-wider font-[family-name:var(--font-ibm-plex-mono)] mb-2">Amount (INR)</p>
+                  <div className="flex items-center justify-center gap-1">
+                    <span className="text-3xl font-bold font-[family-name:var(--font-ibm-plex-mono)] text-ink">₹</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={(Number(amountPaise) / 100).toString()}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (!isNaN(val) && val >= 0) {
+                          setAmountPaise((val * 100).toFixed(0));
+                        } else {
+                          setAmountPaise("0");
+                        }
+                      }}
+                      className="text-5xl font-bold font-[family-name:var(--font-ibm-plex-mono)] text-ink text-center bg-transparent border-b border-dashed border-ink/35 focus:border-ink focus:outline-none w-44"
+                    />
+                  </div>
                 </div>
 
                 {/* Asset selection pills */}
@@ -180,7 +264,7 @@ export default function PayPage() {
                   <div className="flex justify-between text-muted">
                     <span>Exchange Rate</span>
                     <span className="text-ink font-[family-name:var(--font-ibm-plex-mono)]">
-                      {quoteLoading ? <Skeleton className="h-4 w-20 inline-block" /> : `1 ${selectedAsset} = ${(200 / (quote?.usdcAmount || 2.40)).toFixed(2)} INR`}
+                      {quoteLoading ? <Skeleton className="h-4 w-20 inline-block" /> : `1 ${selectedAsset} = ${(Number(amountPaise) / 100 / (quote?.usdcAmount || 2.40)).toFixed(2)} INR`}
                     </span>
                   </div>
                   <div className="flex justify-between text-muted">
@@ -192,7 +276,7 @@ export default function PayPage() {
                       <Star className="h-4 w-4" /> STAR Rewards
                     </span>
                     <span className="bg-lime border-[1.5px] border-ink rounded-[50px] px-3 py-1 font-bold font-[family-name:var(--font-ibm-plex-mono)] text-ink text-sm">
-                      +25 ⭐ STAR
+                      +{quoteLoading ? "..." : quote?.starReward || "0"} ⭐ STAR
                     </span>
                   </div>
                 </div>
@@ -200,8 +284,8 @@ export default function PayPage() {
                 {/* CTA */}
                 <button 
                   onClick={() => createTxMutation.mutate()}
-                  disabled={createTxMutation.isPending}
-                  className="btn-accent w-full !py-4 !text-base"
+                  disabled={createTxMutation.isPending || Number(amountPaise) <= 0}
+                  className="btn-accent w-full !py-4 !text-base disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {createTxMutation.isPending ? "PROCESSING..." : "CONFIRM PAYMENT →"}
                 </button>
@@ -275,15 +359,15 @@ export default function PayPage() {
           </motion.div>
         )}
 
-        {/* STEP 5: SUCCESS (Window Frame) */}
+        {/* STEP 5: SUCCESS */}
         {(step === "SUCCESS" || step === "REWARD") && (
           <motion.div key="success" variants={slideVariants} initial="enter" animate="center" exit="exit" className="w-full">
             <PaymentSuccess 
-              amount="500" 
+              amount={(Number(amountPaise) / 100).toString()} 
               currency="INR" 
-              merchantName="Chai Point" 
+              merchantName={scannedMerchantName || "Chai Point"} 
               onDone={() => router.push("/dashboard")}
-              starEarned={25}
+              starEarned={quoteLoading ? 0 : Number(quote?.starReward || 0)}
             />
           </motion.div>
         )}

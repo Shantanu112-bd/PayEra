@@ -194,6 +194,20 @@ export class MerchantsService {
     };
   }
 
+  async findByUpiVpa(upiVpa: string) {
+    const merchant = await this.prisma.merchant.findFirst({
+      where: {
+        OR: [
+          { defaultUpiVpa: upiVpa },
+          { qrCodes: { some: { upiVpa } } }
+        ],
+        status: MerchantStatus.APPROVED
+      },
+      include: { qrCodes: { where: { isActive: true }, take: 1 } }
+    });
+    return merchant;
+  }
+
   private assertMerchantAccess(owner: AuthenticatedPrincipal, merchant: Merchant) {
     if (owner.role === UserRole.ADMIN || merchant.ownerUserId === owner.id) {
       return;

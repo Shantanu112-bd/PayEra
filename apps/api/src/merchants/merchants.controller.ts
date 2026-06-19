@@ -48,6 +48,12 @@ export class MerchantsController {
     return this.merchantsService.list(principal, query);
   }
 
+  @Get("by-vpa/:vpa")
+  @ApiOperation({ summary: "Get merchant details by UPI VPA." })
+  findByUpiVpa(@CurrentUser() principal: AuthenticatedPrincipal, @Param("vpa") vpa: string) {
+    return this.merchantsService.findByUpiVpa(vpa);
+  }
+
   @Get(":id")
   @ApiOperation({ summary: "Get merchant details and QR codes." })
   findOne(@CurrentUser() principal: AuthenticatedPrincipal, @Param("id") id: string) {
