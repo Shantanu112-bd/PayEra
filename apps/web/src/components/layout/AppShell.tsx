@@ -11,7 +11,13 @@ import { PlayCircle } from "lucide-react";
 
 function DemoBanner() {
   const { isDemoMode, isTourComplete, startTour } = useAppStore();
-  if (!isDemoMode || !isTourComplete) return null;
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted || !isDemoMode || !isTourComplete) return null;
   return (
     <div className="announcement-bar">
       <span>CryptoPay Network is live on Stellar Testnet</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import freighterApi from "@stellar/freighter-api";
 const { isConnected, requestAccess, getAddress } = freighterApi;
 import { fetchBalances, BalanceMap, getStarBalanceFromContract } from "@/lib/stellar";
@@ -34,8 +34,13 @@ export function StellarWalletProvider({ children }: { children: React.ReactNode 
     checkFreighter();
   }, []);
 
-  const refreshBalances = async () => {
+  const refreshBalances = useCallback(async () => {
     if (!publicKey) return;
+    const isValidStellarAddress = /^G[A-Z2-7]{55}$/.test(publicKey);
+    if (!isValidStellarAddress) {
+      setBalances({ XLM: "100.00", USDC: "50.00", STAR: "150.00" });
+      return;
+    }
     try {
       const b = await fetchBalances(publicKey);
       const starBal = await getStarBalanceFromContract(publicKey);
@@ -44,7 +49,7 @@ export function StellarWalletProvider({ children }: { children: React.ReactNode 
     } catch (error) {
       console.error("Failed to fetch balances", error);
     }
-  };
+  }, [publicKey]);
 
   useEffect(() => {
     if (publicKey) {
@@ -52,18 +57,21 @@ export function StellarWalletProvider({ children }: { children: React.ReactNode 
     } else {
       setBalances({ XLM: "0.00", USDC: "0.00", STAR: "0.00" });
     }
-  }, [publicKey]);
+  }, [publicKey, refreshBalances]);
 
-  const { currentUserId } = useAppStore();
+  const { currentUserId, isDemoMode } = useAppStore();
 
   const connect = async () => {
     setIsConnecting(true);
     try {
       if (!isWalletInstalled) {
-        // Fallback for demo when no wallet is installed
-        setPublicKey(currentUserId);
-        setIsWalletInstalled(true);
-        return;
+        if (isDemoMode) {
+          // Fallback for demo when no wallet is installed
+          setPublicKey("GBRP4ZDXSSQAJTZT25ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ");
+          return;
+        } else {
+          throw new Error("Freighter wallet is not installed. Please install Freighter extension.");
+        }
       }
       
       const access = await requestAccess();
@@ -72,16 +80,14 @@ export function StellarWalletProvider({ children }: { children: React.ReactNode 
         if (result && !result.error && result.address) {
           setPublicKey(result.address);
         } else {
-          console.warn(result?.error || "Failed to get address, using demo user fallback.");
-          setPublicKey(currentUserId);
+          throw new Error(result?.error || "Failed to get wallet address");
         }
       } else {
-        console.warn("User declined connection, using demo user fallback.");
-        setPublicKey(currentUserId);
+        throw new Error("Access denied by user");
       }
-    } catch (e) {
-      console.warn("Wallet connection failed, using demo user fallback.", e);
-      setPublicKey(currentUserId);
+    } catch (e: any) {
+      console.error("Wallet connection failed", e);
+      alert(e.message || "Failed to connect to Freighter wallet.");
     } finally {
       setIsConnecting(false);
     }

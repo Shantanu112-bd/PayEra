@@ -28,7 +28,9 @@ export default function WalletPage() {
 
   const { publicKey, balances, isWalletInstalled, connect } = useStellarWallet();
   const { isDemoMode, currentUserId } = useAppStore();
-  const effectiveKey = isDemoMode ? currentUserId : publicKey;
+  const effectiveKey = isDemoMode
+    ? (publicKey || "GBRP4ZDXSSQAJTZT25ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ")
+    : publicKey;
   const shortAddress = effectiveKey ? effectiveKey.slice(0, 6) + "..." + effectiveKey.slice(-4) : "";
 
   return (

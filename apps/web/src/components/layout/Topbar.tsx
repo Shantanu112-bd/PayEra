@@ -9,7 +9,13 @@ export function Topbar() {
     <header className="sticky top-0 z-40 w-full bg-page/95 backdrop-blur-sm border-b border-ink/10 h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8">
       <div className="flex-1" />
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" className="text-muted rounded-full relative !rounded-[50%]">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted rounded-full relative !rounded-[50%]"
+          aria-label="Notifications"
+          onClick={() => alert("No new notifications")}
+        >
           <Bell className="h-5 w-5" />
           <span className="absolute top-2 right-2 h-2 w-2 bg-blue rounded-full" />
         </Button>

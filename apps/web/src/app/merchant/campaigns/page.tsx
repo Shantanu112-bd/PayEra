@@ -43,7 +43,7 @@ export default function CampaignsPage() {
           <SectionTag label="CAMPAIGNS" />
           <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-ibm-plex-mono)] text-ink">Reward Campaigns</h1>
         </div>
-        <Link href="/merchant/campaigns/new">
+        <Link href="/merchant/campaigns/create">
           <Button variant="accent">
             <Plus className="mr-2 h-4 w-4" /> New Campaign →
           </Button>
@@ -74,7 +74,7 @@ export default function CampaignsPage() {
           title="No Campaigns Yet" 
           description="Create reward campaigns to incentivize payments and increase customer retention."
           action={
-            <Link href="/merchant/campaigns/new">
+            <Link href="/merchant/campaigns/create">
               <Button variant="accent"><Plus className="mr-2 h-4 w-4" /> Create First Campaign →</Button>
             </Link>
           }

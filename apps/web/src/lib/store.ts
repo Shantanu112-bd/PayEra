@@ -58,7 +58,7 @@ export const useAppStore = create<AppState>((set) => ({
     ? localStorage.getItem(TOUR_STORAGE_KEY) === "true"
     : false,
 
-  startTour: () => set({ tourStep: 1, isTourComplete: false }),
+  startTour: () => set({ tourStep: 1, isTourComplete: false, currentUserId: "00000000-0000-0000-0000-000000000001" }),
 
   nextTourStep: () =>
     set((state) => {

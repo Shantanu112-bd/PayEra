@@ -49,7 +49,7 @@ export default function MerchantDashboardPage() {
           <span className="border-[1.5px] border-ink rounded-[50px] px-3 py-1 text-xs font-semibold font-[family-name:var(--font-ibm-plex-mono)]">
             Chai Point — Demo
           </span>
-          <Link href="/merchant/campaigns/new">
+          <Link href="/merchant/campaigns/create">
             <Button variant="accent" size="sm">
               <Gift className="mr-2 h-4 w-4" /> New Campaign →
             </Button>

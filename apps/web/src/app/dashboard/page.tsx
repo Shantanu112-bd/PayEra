@@ -47,7 +47,9 @@ export default function DashboardPage() {
   const { publicKey, balances, isWalletInstalled, connect } = useStellarWallet();
   const { isDemoMode, currentUserId } = useAppStore();
   
-  const effectivePublicKey = isDemoMode ? currentUserId : publicKey;
+  const effectivePublicKey = isDemoMode
+    ? (publicKey || "GBRP4ZDXSSQAJTZT25ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ")
+    : publicKey;
   
   const primaryWallet = effectivePublicKey 
     ? { id: "freighter-1", address: effectivePublicKey, type: "FREIGHTER", isPrimary: true, name: "Freighter Wallet (Demo)" } as any
