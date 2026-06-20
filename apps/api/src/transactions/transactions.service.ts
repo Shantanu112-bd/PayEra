@@ -38,7 +38,9 @@ type Quote = {
   usdcAmount: string;
 };
 
-const MOCK_INR_RATES: Record<AssetCode, number> = {
+// NOTE: Real-time INR/Crypto rates require a licensed financial exchange partner.
+// These are estimated fallback rates.
+const ESTIMATED_INR_RATES: Record<AssetCode, number> = {
   [AssetCode.BTC]: 9_000_000,
   [AssetCode.ETH]: 300_000,
   [AssetCode.INR]: 1,
@@ -192,89 +194,6 @@ export class TransactionsService {
     return transaction;
   }
 
-  async simulate(owner: AuthenticatedPrincipal, id: string, dto: SimulateTransactionDto) {
-    const transaction = await this.findOne(owner, id);
-
-    if (
-      transaction.status === TransactionStatus.COMPLETED ||
-      transaction.status === TransactionStatus.CANCELLED ||
-      transaction.status === TransactionStatus.FAILED
-    ) {
-      throw new BadRequestException("Transaction is already terminal");
-    }
-
-    const rewardAmount = calculateSpendRewardStar(transaction.amountInPaise);
-    const stellarTransactionHash = dto.stellarTransactionHash ?? createReadableId("STELLAR");
-
-    return this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      await this.appendEvents(tx, transaction.id, [
-        TransactionStatus.QUOTED,
-        TransactionStatus.AUTHORIZED,
-        TransactionStatus.CONVERTING,
-        TransactionStatus.ROUTING_STELLAR,
-        TransactionStatus.SETTLING,
-        TransactionStatus.REWARDING,
-        TransactionStatus.COMPLETED,
-      ]);
-
-      await tx.settlementInstruction.update({
-        data: {
-          attemptedAt: now,
-          confirmedAt: now,
-          mockReference: createReadableId("UPI_MOCK"),
-          status: SettlementStatus.CONFIRMED,
-        },
-        where: { transactionId: transaction.id },
-      });
-
-      if (rewardAmount > 0n) {
-        await tx.reward.upsert({
-          create: {
-            reason: RewardReason.SPEND,
-            ruleSnapshot: {
-              formula: "10 STAR per INR 100 spent",
-              formulaVersion: "STAR_SPEND_V1",
-            },
-            starAmount: rewardAmount,
-            status: RewardStatus.MINTED,
-            stellarMintHash: createReadableId("STAR_MINT"),
-            transactionId: transaction.id,
-            userId: transaction.userId,
-            mintedAt: now,
-          },
-          update: {
-            status: RewardStatus.MINTED,
-          },
-          where: {
-            transactionId_reason: {
-              reason: RewardReason.SPEND,
-              transactionId: transaction.id,
-            },
-          },
-        });
-      }
-
-      return tx.transaction.update({
-        data: {
-          authorizedAt: now,
-          completedAt: now,
-          failureCode: null,
-          failureMessage: null,
-          status: TransactionStatus.COMPLETED,
-          stellarLedger: BigInt(Date.now()),
-          stellarTransactionHash,
-        },
-        include: {
-          events: { orderBy: { sequence: "asc" } },
-          merchant: true,
-          rewards: true,
-          settlementInstruction: true,
-        },
-        where: { id: transaction.id },
-      });
-    });
-  }
 
   async cancel(owner: AuthenticatedPrincipal, id: string) {
     const transaction = await this.findOne(owner, id);
@@ -333,10 +252,10 @@ export class TransactionsService {
       throw new BadRequestException("assetIn must be a crypto asset");
     }
 
-    const rate = MOCK_INR_RATES[assetIn];
+    const rate = ESTIMATED_INR_RATES[assetIn];
     const amountInr = Number(amountInPaise) / 100;
     const amountInCrypto = amountInr / rate;
-    const usdcAmount = amountInr / MOCK_INR_RATES[AssetCode.USDC];
+    const usdcAmount = amountInr / ESTIMATED_INR_RATES[AssetCode.USDC];
 
     return {
       amountInCrypto: amountInCrypto.toFixed(18),

@@ -1,9 +1,19 @@
-import { Horizon, rpc, Contract } from "@stellar/stellar-sdk";
+import {
+  Contract,
+  TransactionBuilder,
+  Networks,
+  BASE_FEE,
+  scValToNative,
+  nativeToScVal,
+  Address,
+  Horizon,
+  rpc
+} from '@stellar/stellar-sdk';
 import { signTransaction, setAllowed } from "@stellar/freighter-api";
 
 // Use Stellar Testnet
 const HORIZON_URL = "https://horizon-testnet.stellar.org";
-const SOROBAN_RPC_URL = "https://soroban-testnet.stellar.org";
+const SOROBAN_RPC_URL = process.env.NEXT_PUBLIC_STELLAR_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
 
 export const server = new Horizon.Server(HORIZON_URL);
 export const rpcServer = new rpc.Server(SOROBAN_RPC_URL);
@@ -12,8 +22,8 @@ export const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
 
 // Mock Contract IDs since they aren't deployed yet for the demo
 export const CONTRACTS = {
-  paymentEngine: "CCY2RUZ2F3O7YZVOWEWYR6H5335O2SQU6O3ZTYGMFK6X2X2YFTDOPM4I",
-  starToken: "CD7LZ3UFV7Z6RMFJZT3G24HNDGB2D7F3H7YOTM35OIMDBIHF7XY3O6A4",
+  paymentEngine: process.env.NEXT_PUBLIC_PAYMENT_ENGINE_CONTRACT_ADDRESS || "",
+  starToken: process.env.NEXT_PUBLIC_STAR_CONTRACT_ADDRESS || "",
   usdc: "CBXYZ...", // Native USDC token address on testnet
 };
 
@@ -44,17 +54,35 @@ export async function fetchBalances(publicKey: string): Promise<BalanceMap> {
   return balances;
 }
 
-/**
- * Example invocation for a Soroban Contract (Read-only)
- */
-export async function getStarBalanceFromContract(publicKey: string): Promise<string> {
+export async function getStarBalanceFromContract(walletAddress: string): Promise<string> {
   try {
-    const contract = new Contract(CONTRACTS.starToken);
-    // In a real scenario, we'd build the XDR transaction, simulate it, and parse the result
-    console.log("Mock read from Soroban contract", contract.contractId());
-    return "5000"; // Mock response
+    const rpcServer = new rpc.Server(
+      process.env.NEXT_PUBLIC_STELLAR_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org'
+    )
+    const contract = new Contract(process.env.NEXT_PUBLIC_STAR_CONTRACT_ADDRESS!)
+    const account = await rpcServer.getAccount(walletAddress)
+    
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(
+        contract.call(
+          'balance',
+          nativeToScVal(Address.fromString(walletAddress))
+        )
+      )
+      .setTimeout(30)
+      .build()
+
+    const result = await rpcServer.simulateTransaction(tx)
+    
+    if (rpc.Api.isSimulationSuccess(result) && result.result) {
+      return scValToNative(result.result.retval).toString()
+    }
+    return '0'
   } catch (e) {
-    console.error("Error invoking contract", e);
-    return "0";
+    console.error('Contract balance read failed:', e)
+    return '0'
   }
 }

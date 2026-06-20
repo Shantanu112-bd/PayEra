@@ -15,9 +15,13 @@ import { UsersModule } from "./users/users.module";
 import { WalletsModule } from "./wallets/wallets.module";
 import { KycModule } from "./kyc/kyc.module";
 import { HealthController } from "./health/health.controller";
+import { ScheduleModule } from '@nestjs/schedule';
+import { StellarModule } from './stellar/stellar.module';
+import { TransactionProcessorModule } from './transaction-processor/transaction-processor.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{
       ttl: 60000,
       limit: 100,
@@ -34,6 +38,8 @@ import { HealthController } from "./health/health.controller";
     AdminModule,
     AnalyticsModule,
     KycModule,
+    StellarModule,
+    TransactionProcessorModule,
   ],
   controllers: [
     HealthController,

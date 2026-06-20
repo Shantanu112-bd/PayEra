@@ -17,10 +17,10 @@ import {
   Globe,
 } from "lucide-react";
 
-// Contract addresses sourced from stellar.ts constants
 const CONTRACTS = {
-  starToken:     "CD7LZ3UFV7Z6RMFJZT3G24HNDGB2D7F3H7YOTM35OIMDBIHF7XY3O6A4",
-  paymentEngine: "CCY2RUZ2F3O7YZVOWEWYR6H5335O2SQU6O3ZTYGMFK6X2X2YFTDOPM4I",
+  starToken:     process.env.NEXT_PUBLIC_STAR_CONTRACT_ADDRESS || "",
+  paymentEngine: process.env.NEXT_PUBLIC_PAYMENT_ENGINE_CONTRACT_ADDRESS || "",
+  rewardEngine:  process.env.NEXT_PUBLIC_REWARD_ENGINE_CONTRACT_ADDRESS || "",
 };
 
 const STELLAR_EXPLORER_BASE = "https://stellar.expert/explorer/testnet";
@@ -83,7 +83,7 @@ function ContractCard({
         </div>
       </div>
       <div className="bg-black/40 border border-white/10 rounded-lg p-3 font-mono text-xs text-white/70 break-all flex items-start gap-1">
-        <span className="flex-1">{address}</span>
+        <span className="flex-1">{truncate(address, 4)}</span>
         <CopyButton value={address} />
       </div>
     </div>
@@ -197,6 +197,12 @@ export default function ContractsPage() {
             address={CONTRACTS.paymentEngine}
             icon={Zap}
             color="border-blue-500/20"
+          />
+          <ContractCard
+            label="Reward Engine"
+            address={CONTRACTS.rewardEngine}
+            icon={Activity}
+            color="border-emerald-500/20"
           />
         </div>
       </div>

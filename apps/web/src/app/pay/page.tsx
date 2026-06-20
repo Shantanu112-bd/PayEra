@@ -9,6 +9,8 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore } from "../../lib/store";
 import { parseUpiQr, isUpiVpa } from "../../lib/upi-parser";
+import { getWalletBalances } from "../../lib/horizon";
+import { getAddress } from "@stellar/freighter-api";
 import dynamic from "next/dynamic";
 
 const QrScanner = dynamic(
@@ -24,6 +26,8 @@ export default function PayPage() {
   const [step, setStep] = React.useState<PayStep>("SCAN");
   const [selectedAsset, setSelectedAsset] = React.useState<"USDC" | "XLM">("USDC");
   const [transactionId, setTransactionId] = React.useState<string | null>(null);
+  const [showManualInput, setShowManualInput] = React.useState(false);
+  const [manualVpa, setManualVpa] = React.useState("");
 
   // Scanned UPI QR states
   const [scannedVpa, setScannedVpa] = React.useState<string>("");
@@ -43,6 +47,16 @@ export default function PayPage() {
   const { data: wallets } = useQuery({
     queryKey: ["wallets"],
     queryFn: () => cryptoPaySdk.wallets.listWallets(),
+  });
+
+  const { data: walletBalances } = useQuery({
+    queryKey: ["wallet-balances"],
+    queryFn: async () => {
+      const { address } = await getAddress();
+      if (!address) return { xlm: "0", usdc: "0" };
+      return getWalletBalances(address);
+    },
+    refetchInterval: 30000,
   });
 
   // Transaction Creation Mutation
@@ -173,17 +187,43 @@ export default function PayPage() {
               />
             </div>
             <div className="mt-4 space-y-3">
-              <button 
-                onClick={() => {
-                  const manualVpa = prompt("Enter UPI VPA manually (e.g. merchant@upi):");
-                  if (manualVpa) {
-                    handleScanSuccess(manualVpa);
-                  }
-                }}
+              <button
+                onClick={() => setShowManualInput(prev => !prev)}
                 className="btn-primary w-full !py-3"
               >
                 Enter VPA manually
               </button>
+
+              {showManualInput && (
+                <div className="flex gap-2 mt-2">
+                  <input
+                    type="text"
+                    value={manualVpa}
+                    onChange={(e) => setManualVpa(e.target.value)}
+                    placeholder="merchant@upi"
+                    className="flex-1 border-[1.5px] border-ink rounded-[12px] px-4 py-3 font-[family-name:var(--font-ibm-plex-mono)] text-sm focus:outline-none bg-white"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && manualVpa.trim()) {
+                        handleScanSuccess(manualVpa.trim());
+                        setShowManualInput(false);
+                        setManualVpa("");
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      if (manualVpa.trim()) {
+                        handleScanSuccess(manualVpa.trim());
+                        setShowManualInput(false);
+                        setManualVpa("");
+                      }
+                    }}
+                    className="btn-accent px-4 py-3 rounded-[12px]"
+                  >
+                    →
+                  </button>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -324,7 +364,7 @@ export default function PayPage() {
                       <div>
                         <p className="font-bold font-[family-name:var(--font-ibm-plex-mono)]">{asset}</p>
                         <p className={`text-xs ${selectedAsset === asset ? "text-white/60" : "text-muted"}`}>
-                          Available: {asset === "USDC" ? "1,240.50" : "450.00"}
+                          Available: {asset === "USDC" ? (walletBalances?.usdc || "0") : (walletBalances?.xlm || "0")}
                         </p>
                       </div>
                     </div>

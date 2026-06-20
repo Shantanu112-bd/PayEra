@@ -127,7 +127,8 @@ export class RewardsService {
       data: {
         mintedAt: new Date(),
         status: RewardStatus.MINTED,
-        stellarMintHash: createReadableId("STAR_MINT"),
+        // TODO: Integrate real Stellar Mint Transaction for manual reward minting
+        stellarMintHash: null,
       },
       where: { id },
     });
