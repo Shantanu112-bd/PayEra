@@ -54,7 +54,7 @@ jobs:
         run: npx turbo run build
 
       - name: Run tests
-        run: npx turbo run test --passWithNoTests
+        run: npx turbo run test -- --passWithNoTests
 
       - name: Type check
         run: npx turbo run typecheck
