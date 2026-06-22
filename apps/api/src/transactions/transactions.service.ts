@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 
 import { PrismaService } from "../prisma/prisma.service";
+import { CircuitBreakerService } from "../common/circuit-breaker/circuit-breaker.service";
 import { createReadableId, sha256Hex } from "../common/utils/ids";
 import { calculateSpendRewardStar } from "../common/utils/rewards";
 import { toPagination } from "../common/utils/pagination";
@@ -43,7 +44,10 @@ export class TransactionsService {
   private rateCache: Partial<Record<AssetCode, number>> = {};
   private rateCacheTime = 0;
 
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    private readonly circuitBreaker: CircuitBreakerService,
+  ) {}
 
   private async getLiveRates(): Promise<Record<AssetCode, number>> {
     const now = Date.now();
@@ -52,9 +56,10 @@ export class TransactionsService {
     }
 
     try {
-      const res = await fetch(
+      const policy = this.circuitBreaker.getPolicy('COINGECKO');
+      const res = (await policy.execute(() => fetch(
         'https://api.coingecko.com/api/v3/simple/price?ids=stellar,usd-coin,bitcoin,ethereum,solana&vs_currencies=inr'
-      );
+      ))) as Response;
       const data = await res.json() as Record<string, { inr: number }>;
 
       this.rateCache = {
@@ -121,7 +126,7 @@ export class TransactionsService {
     const qrPayloadHash =
       dto.qrPayload === undefined ? qrCode?.qrPayloadHash : sha256Hex(dto.qrPayload);
 
-    return this.prisma.transaction.create({
+    const newTransaction = await this.prisma.transaction.create({
       data: {
         amountInCrypto: quote.amountInCrypto,
         amountInPaise,
@@ -165,6 +170,23 @@ export class TransactionsService {
         settlementInstruction: true,
       },
     });
+
+    await this.prisma.adminLog.create({
+      data: {
+        actorUserId: owner.id,
+        action: 'TRANSACTION_CREATED',
+        targetType: 'TRANSACTION',
+        targetId: newTransaction.id,
+        metadata: {
+          merchantId: dto.merchantId,
+          assetIn: dto.assetIn,
+          amountInPaise: dto.amountInPaise,
+          publicId: newTransaction.publicId,
+        } as any,
+      },
+    })
+
+    return newTransaction;
   }
 
   async list(owner: AuthenticatedPrincipal, query: ListTransactionsDto) {

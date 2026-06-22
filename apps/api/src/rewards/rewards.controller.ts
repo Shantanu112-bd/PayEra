@@ -18,6 +18,7 @@ import { RewardsService } from "./rewards.service";
 @ApiTags("Rewards")
 @ApiMockAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.CONSUMER, UserRole.ADMIN)
 @Controller("rewards")
 export class RewardsController {
   constructor(

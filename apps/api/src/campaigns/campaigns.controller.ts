@@ -17,7 +17,9 @@ import {
   type AuthenticatedPrincipal,
 } from "../common/decorators/current-user.decorator";
 import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
-import { CampaignStatus } from "../generated/prisma";
+import { RolesGuard } from "../common/guards/roles.guard";
+import { Roles } from "../common/decorators/roles.decorator";
+import { CampaignStatus, UserRole } from "../generated/prisma";
 import { CampaignsService } from "./campaigns.service";
 import { CreateBrandDto } from "./dto/create-brand.dto";
 import { CreateCampaignDto } from "./dto/create-campaign.dto";
@@ -26,7 +28,8 @@ import { UpdateCampaignDto } from "./dto/update-campaign.dto";
 
 @ApiTags("Campaigns")
 @ApiMockAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.MERCHANT_OPERATOR, UserRole.ADMIN)
 @Controller("campaigns")
 export class CampaignsController {
   constructor(

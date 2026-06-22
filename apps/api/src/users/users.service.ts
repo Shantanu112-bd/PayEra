@@ -115,12 +115,26 @@ export class UsersService {
   }
 
   softDelete(id: string) {
-    return this.prisma.user.update({
-      data: {
-        deletedAt: new Date(),
-        status: UserStatus.DELETED,
-      },
-      where: { id },
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        data: {
+          deletedAt: new Date(),
+          status: UserStatus.DELETED,
+        },
+        where: { id },
+      });
+
+      await tx.adminLog.create({
+        data: {
+          actorUserId: id,
+          action: 'USER_ACCOUNT_DELETED',
+          targetType: 'USER',
+          targetId: id,
+          metadata: { deletedAt: new Date().toISOString() } as any,
+        },
+      })
+
+      return user;
     });
   }
 
@@ -137,33 +151,105 @@ export class UsersService {
     return { items, total };
   }
 
-  async exportData(userId: string) {
-    const user = await this.prisma.user.findFirst({
-      where: { id: userId, deletedAt: null },
-      include: {
-        ownedBrands: true,
-        ownedMerchants: true,
-        wallets: true,
-      },
-    });
+  async exportUserData(userId: string) {
+    const [user, transactions, rewards, referrals, wallets] = await Promise.all([
+      this.prisma.user.findUniqueOrThrow({
+        where: { id: userId, deletedAt: null },
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          role: true,
+          status: true,
+          kycStatus: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.transaction.findMany({
+        where: { userId },
+        select: {
+          publicId: true,
+          assetIn: true,
+          amountInPaise: true,
+          quoteRateInrPerAsset: true,
+          stellarTransactionHash: true,
+          status: true,
+          merchantUpiVpa: true,
+          createdAt: true,
+          completedAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.reward.findMany({
+        where: { userId },
+        select: {
+          reason: true,
+          status: true,
+          starAmount: true,
+          stellarMintHash: true,
+          mintedAt: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.referral.findMany({
+        where: { inviterUserId: userId },
+        select: {
+          code: true,
+          status: true,
+          rewardAmountStar: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.wallet.findMany({
+        where: { userId },
+        select: {
+          provider: true,
+          network: true,
+          address: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
+    ])
 
-    if (!user) {
-      throw new BadRequestException("User not found");
-    }
-
-    const transactions = await this.prisma.transaction.findMany({
-      where: { userId },
-      take: 1000,
-    });
-    const auditLogs = await this.prisma.adminLog.findMany({
-      where: { actorUserId: userId },
-      take: 1000,
-    });
     return {
+      exportedAt: new Date().toISOString(),
       user,
       transactions,
-      auditLogs,
-      exportedAt: new Date(),
-    };
+      rewards,
+      referrals,
+      wallets,
+    }
+  }
+
+  async deleteAccount(userId: string) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          deletedAt: new Date(),
+          status: 'DELETED' as any,
+          email: null,
+          emailNormalized: null,
+          phoneE164: null,
+          displayName: 'Deleted User',
+        },
+      })
+
+      await tx.wallet.updateMany({
+        where: { userId },
+        data: { status: 'REVOKED' as any },
+      })
+
+      await tx.adminLog.create({
+        data: {
+          actorUserId: userId,
+          action: 'USER_ACCOUNT_DELETED',
+          targetType: 'USER',
+          targetId: userId,
+          metadata: { selfDeleted: true } as any,
+        },
+      })
+    })
   }
 }

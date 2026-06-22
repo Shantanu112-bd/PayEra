@@ -2,12 +2,16 @@ import { Injectable, Logger } from "@nestjs/common";
 
 import { PrismaService } from "../prisma/prisma.service";
 import { KycStatus } from "../generated/prisma";
+import { CircuitBreakerService } from "../common/circuit-breaker/circuit-breaker.service";
 
 @Injectable()
 export class KycService {
   private readonly logger = new Logger(KycService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly circuitBreaker: CircuitBreakerService,
+  ) {}
 
   async processWebhook(payload: any) {
     this.logger.log(`Received KYCAID webhook: ${JSON.stringify(payload)}`);
@@ -75,14 +79,15 @@ export class KycService {
       throw new Error('KYCAID not configured');
     }
 
-    const response = await fetch('https://api.kycaid.com/applicants', {
+    const policy = this.circuitBreaker.getPolicy('KYCAID');
+    const response = (await policy.execute(() => fetch('https://api.kycaid.com/applicants', {
       method: 'POST',
       headers: {
         'Authorization': `Token ${apiToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ type: 'PERSON', form_id: formId }),
-    });
+    }))) as Response;
 
     if (!response.ok) {
       throw new Error(`KYCAID error: ${response.statusText}`);

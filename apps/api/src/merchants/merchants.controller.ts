@@ -29,6 +29,7 @@ import { MerchantsService } from "./merchants.service";
 @ApiTags("Merchants")
 @ApiMockAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.MERCHANT_OPERATOR, UserRole.ADMIN)
 @Controller("merchants")
 export class MerchantsController {
   constructor(
@@ -49,6 +50,7 @@ export class MerchantsController {
   }
 
   @Get("by-vpa/:vpa")
+  @Roles(UserRole.CONSUMER, UserRole.MERCHANT_OPERATOR, UserRole.ADMIN)
   @ApiOperation({ summary: "Get merchant details by UPI VPA." })
   findByUpiVpa(@CurrentUser() principal: AuthenticatedPrincipal, @Param("vpa") vpa: string) {
     return this.merchantsService.findByUpiVpa(vpa);

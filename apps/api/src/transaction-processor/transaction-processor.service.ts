@@ -48,7 +48,7 @@ export class TransactionProcessorService {
     const BACKOFF_MS = [0, 2000, 8000];
 
     try {
-      await this.processTransaction(tx);
+      await this.processTransaction(tx, attempt);
     } catch (error: any) {
       this.logger.warn(`Transaction ${tx.id} failed on attempt ${attempt}: ${error.message}`);
 
@@ -75,7 +75,7 @@ export class TransactionProcessorService {
     }
   }
 
-  private async processTransaction(tx: any) {
+  private async processTransaction(tx: any, attempt: number) {
     this.logger.log(`Processing transaction ${tx.id} with status ${tx.status}`);
 
     try {
@@ -85,7 +85,7 @@ export class TransactionProcessorService {
 
       await this.updateStatus(tx.id, TransactionStatus.ROUTING_STELLAR);
 
-      const { hash } = await this.stellarService.submitPayment({
+      const { hash, ledger } = await this.stellarService.submitPayment({
         transactionPublicId: tx.publicId,
         assetCode: tx.assetIn,
         amountCrypto: tx.amountInCrypto?.toString() || '0.0000001',
@@ -118,6 +118,20 @@ export class TransactionProcessorService {
       });
 
       await this.updateStatus(tx.id, TransactionStatus.COMPLETED);
+
+      await this.prisma.adminLog.create({
+        data: {
+          actorUserId: null,
+          action: 'TRANSACTION_COMPLETED',
+          targetType: 'TRANSACTION',
+          targetId: tx.id,
+          metadata: {
+            stellarHash: hash,
+            ledger,
+            processorAttempt: attempt,
+          } as any,
+        },
+      })
       
       this.logger.log(`Transaction ${tx.id} completed successfully. Stellar Hash: ${hash}`);
 

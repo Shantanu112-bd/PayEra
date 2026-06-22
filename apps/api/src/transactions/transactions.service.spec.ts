@@ -1,6 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import { TransactionsService } from './transactions.service'
 import { PrismaService } from '../prisma/prisma.service'
+import { CircuitBreakerService } from '../common/circuit-breaker/circuit-breaker.service'
+
+const mockCircuitBreaker = {
+  getPolicy: jest.fn().mockReturnValue({
+    execute: jest.fn(async (cb) => cb()),
+  }),
+}
 
 const mockPrisma = {
   transaction: {
@@ -25,6 +32,7 @@ describe('TransactionsService', () => {
       providers: [
         TransactionsService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
       ],
     }).compile()
 

@@ -20,6 +20,7 @@ import { HealthController } from "./health/health.controller";
 import { ScheduleModule } from '@nestjs/schedule';
 import { StellarModule } from './stellar/stellar.module';
 import { TransactionProcessorModule } from './transaction-processor/transaction-processor.module';
+import { CircuitBreakerModule } from './common/circuit-breaker/circuit-breaker.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { TransactionProcessorModule } from './transaction-processor/transaction-
     KycModule,
     StellarModule,
     TransactionProcessorModule,
+    CircuitBreakerModule,
   ],
   controllers: [
     HealthController,

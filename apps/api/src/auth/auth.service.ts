@@ -70,6 +70,18 @@ export class AuthService {
 
     const { accessToken, refreshToken } = await this.generateTokens(user.id, user.role);
 
+    if (process.env.NODE_ENV !== 'production') {
+      await this.prisma.adminLog.create({
+        data: {
+          actorUserId: user.id,
+          action: 'USER_LOGIN_MOCK',
+          targetType: 'USER',
+          targetId: user.id,
+          metadata: { method: 'MOCK' } as any,
+        },
+      })
+    }
+
     return {
       auth: { accessToken, refreshToken },
       user,
@@ -116,6 +128,21 @@ export class AuthService {
 
       const { accessToken, refreshToken } = await this.generateTokens(user.id, user.role);
 
+      await this.prisma.adminLog.create({
+        data: {
+          actorUserId: user.id,
+          action: 'USER_LOGIN',
+          targetType: 'USER',
+          targetId: user.id,
+          metadata: {
+            method: 'WALLET',
+            network: dto.network,
+            provider: dto.provider,
+            address: dto.address.substring(0, 8) + '...',
+          } as any,
+        },
+      })
+
       return {
         auth: { accessToken, refreshToken },
         user,
@@ -148,6 +175,21 @@ export class AuthService {
     });
 
     const { accessToken, refreshToken } = await this.generateTokens(user.id, user.role);
+
+    await this.prisma.adminLog.create({
+      data: {
+        actorUserId: user.id,
+        action: 'USER_LOGIN',
+        targetType: 'USER',
+        targetId: user.id,
+        metadata: {
+          method: 'WALLET',
+          network: dto.network,
+          provider: dto.provider,
+          address: dto.address.substring(0, 8) + '...',
+        } as any,
+      },
+    })
 
     return {
       auth: { accessToken, refreshToken },

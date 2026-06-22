@@ -14,6 +14,9 @@ const mockPrisma = {
     findUnique: jest.fn(),
     update: jest.fn(),
   },
+  adminLog: {
+    create: jest.fn(),
+  },
 }
 
 const mockJwt = {

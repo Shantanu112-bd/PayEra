@@ -9,6 +9,7 @@ import {
   Operation,
   Memo,
 } from '@stellar/stellar-sdk';
+import { CircuitBreakerService } from '../common/circuit-breaker/circuit-breaker.service';
 
 @Injectable()
 export class StellarService {
@@ -17,7 +18,7 @@ export class StellarService {
   private readonly platformKeypair: Keypair;
   private readonly networkPassphrase: string;
 
-  constructor() {
+  constructor(private readonly circuitBreaker: CircuitBreakerService) {
     const secretKey = process.env.PLATFORM_STELLAR_SECRET_KEY;
     if (!secretKey) {
       this.logger.warn('PLATFORM_STELLAR_SECRET_KEY is not defined. Using a randomly generated keypair. Real transactions will fail!');
@@ -41,35 +42,38 @@ export class StellarService {
     try {
       this.logger.debug(`Submitting real transaction on Stellar for ${params.transactionPublicId}`);
       
-      const account = await this.server.loadAccount(this.platformKeypair.publicKey());
-      
-      const asset = params.assetCode === 'XLM'
-        ? Asset.native()
-        : new Asset('USDC', 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5');
-      
-      // Minimum viable amount for testnet proof
-      const amount = parseFloat(params.amountCrypto) > 0
-        ? Math.max(parseFloat(params.amountCrypto), 0.0000001).toFixed(7)
-        : '0.0000001';
+      const policy = this.circuitBreaker.getPolicy('STELLAR');
+      return (await policy.execute(async () => {
+        const account = await this.server.loadAccount(this.platformKeypair.publicKey());
+        
+        const asset = params.assetCode === 'XLM'
+          ? Asset.native()
+          : new Asset('USDC', 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5');
+        
+        // Minimum viable amount for testnet proof
+        const amount = parseFloat(params.amountCrypto) > 0
+          ? Math.max(parseFloat(params.amountCrypto), 0.0000001).toFixed(7)
+          : '0.0000001';
 
-      const txBuilder = new TransactionBuilder(account, {
-        fee: BASE_FEE,
-        networkPassphrase: this.networkPassphrase,
-      })
-        .addOperation(Operation.payment({
-          destination: this.platformKeypair.publicKey(),
-          asset,
-          amount,
-        }))
-        .addMemo(Memo.text(params.transactionPublicId.substring(0, 28)))
-        .setTimeout(30);
+        const txBuilder = new TransactionBuilder(account, {
+          fee: BASE_FEE,
+          networkPassphrase: this.networkPassphrase,
+        })
+          .addOperation(Operation.payment({
+            destination: this.platformKeypair.publicKey(),
+            asset,
+            amount,
+          }))
+          .addMemo(Memo.text(params.transactionPublicId.substring(0, 28)))
+          .setTimeout(30);
 
-      const tx = txBuilder.build();
-      tx.sign(this.platformKeypair);
+        const tx = txBuilder.build();
+        tx.sign(this.platformKeypair);
 
-      const result = await this.server.submitTransaction(tx);
-      
-      return { hash: result.hash, ledger: result.ledger };
+        const result = await this.server.submitTransaction(tx);
+        
+        return { hash: result.hash, ledger: result.ledger };
+      })) as { hash: string; ledger: number };
     } catch (error) {
       this.logger.error('Failed to submit transaction to Stellar network', error);
       throw error;
@@ -78,7 +82,8 @@ export class StellarService {
 
   async getTransactionStatus(hash: string): Promise<boolean> {
     try {
-      const tx = await this.server.transactions().transaction(hash).call();
+      const policy = this.circuitBreaker.getPolicy('STELLAR');
+      const tx = (await policy.execute(() => this.server.transactions().transaction(hash).call())) as any;
       return tx.successful;
     } catch (error) {
       this.logger.error(`Failed to get transaction status for hash ${hash}`, error);

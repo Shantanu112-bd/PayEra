@@ -40,14 +40,15 @@ export class UsersController {
 
   @Get("me/export")
   @ApiOperation({ summary: "Export all user data." })
-  exportData(@CurrentUser() principal: AuthenticatedPrincipal) {
-    return this.usersService.exportData(principal.id);
+  async exportData(@CurrentUser() user: AuthenticatedPrincipal) {
+    return this.usersService.exportUserData(user.id)
   }
 
   @Delete("me")
   @ApiOperation({ summary: "Soft delete the authenticated user account." })
-  deleteMe(@CurrentUser() principal: AuthenticatedPrincipal) {
-    return this.usersService.softDelete(principal.id);
+  async deleteAccount(@CurrentUser() user: AuthenticatedPrincipal) {
+    await this.usersService.deleteAccount(user.id)
+    return { message: 'Account scheduled for deletion' }
   }
 
   @Post()

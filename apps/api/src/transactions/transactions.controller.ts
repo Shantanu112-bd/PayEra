@@ -1,5 +1,8 @@
 import { Body, Controller, Get, Inject, Param, Post, Query, UseGuards, Headers } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { RolesGuard } from "../common/guards/roles.guard";
+import { Roles } from "../common/decorators/roles.decorator";
+import { UserRole } from "../generated/prisma";
 
 import { ApiMockAuth } from "../common/decorators/api-auth-headers.decorator";
 import {
@@ -17,7 +20,8 @@ import { PrismaService } from "../prisma/prisma.service";
 
 @ApiTags("Transactions")
 @ApiMockAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.CONSUMER, UserRole.ADMIN)
 @Controller("transactions")
 export class TransactionsController {
   constructor(
