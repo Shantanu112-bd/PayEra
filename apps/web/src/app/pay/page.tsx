@@ -178,7 +178,7 @@ export default function PayPage() {
         {/* STEP 1: SCAN */}
         {step === "SCAN" && (
           <motion.div key="scan" variants={slideVariants} initial="enter" animate="center" exit="exit" className="w-full">
-            <div className="bg-ink rounded-[20px] p-6 relative overflow-hidden">
+            <div className="bg-white border-[1.5px] border-ink rounded-[20px] p-6 relative overflow-hidden">
               <QrScanner
                 onScanSuccess={handleScanSuccess}
                 onScanError={(err) => {

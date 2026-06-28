@@ -25,7 +25,6 @@ export function QrScanner({ onScanSuccess, onScanError }: QrScannerProps) {
 
     scannerRef.current.render(
       (decodedText) => {
-        scannerRef.current?.clear().catch(console.error)
         onScanSuccess(decodedText)
       },
       (error) => {

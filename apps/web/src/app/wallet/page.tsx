@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Plus, Copy, ExternalLink } from "lucide-react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
 import { WalletCard, Skeleton, Button, EmptyState } from "@cryptopay/ui";
@@ -99,6 +100,21 @@ export default function WalletPage() {
                 <p className="text-xs text-muted mt-1">{item.label}</p>
               </div>
             ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <Link href="/wallet/onramp">
+              <button className="btn-primary w-full">
+                ↓ Add USDC
+                <span className="text-xs block opacity-60">Cash at MoneyGram</span>
+              </button>
+            </Link>
+            <Link href="/wallet/offramp">
+              <button className="btn-primary w-full">
+                ↑ Cash Out
+                <span className="text-xs block opacity-60">174 countries</span>
+              </button>
+            </Link>
           </div>
 
           {/* Network Status */}

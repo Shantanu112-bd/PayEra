@@ -1,0 +1,30 @@
+# Payra stellar.toml
+# Required for SEP-10 non-custodial authentication with MoneyGram Ramps
+
+ACCOUNTS=["GA6MPSEDZWDYVFN2CLITDXSM2WI545AQATWRPJAA4QKBJKHSLUI5JAE6"]
+VERSION="2.0.0"
+NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+
+SIGNING_KEY="GA6MPSEDZWDYVFN2CLITDXSM2WI545AQATWRPJAA4QKBJKHSLUI5JAE6"
+
+[DOCUMENTATION]
+ORG_NAME="Payra"
+ORG_URL="https://payra.in"
+ORG_DESCRIPTION="Stellar-powered crypto payments for India"
+
+[[CURRENCIES]]
+code="USDC"
+issuer="GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+display_decimals=2
+name="USD Coin"
+anchor_asset_type="fiat"
+anchor_asset="USD"
+status="live"
+
+[[CURRENCIES]]
+code="STAR"
+issuer="GA6MPSEDZWDYVFN2CLITDXSM2WI545AQATWRPJAA4QKBJKHSLUI5JAE6"
+display_decimals=0
+name="STAR Reward Token"
+description="Payra loyalty reward token"
+status="live"

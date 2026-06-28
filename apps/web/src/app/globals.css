@@ -611,3 +611,48 @@ h3 {
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* ============================================
+   HTML5 QR CODE SCANNER OVERRIDES
+   ============================================ */
+
+#qr-reader {
+  border: none !important;
+}
+
+#qr-reader a {
+  color: var(--color-blue);
+  text-decoration: underline;
+}
+
+#qr-reader button {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1.5px solid #1A1A1A;
+  border-radius: 50px;
+  padding: 8px 16px;
+  background: #C5D483;
+  color: #1A1A1A;
+  cursor: pointer;
+  margin-top: 12px;
+  margin-bottom: 12px;
+  transition: background 200ms ease;
+}
+
+#qr-reader button:hover {
+  background: #b8c76e;
+}
+
+#qr-reader select {
+  border: 1.5px solid #1A1A1A;
+  border-radius: 8px;
+  padding: 8px;
+  margin: 8px 0;
+  font-family: var(--font-sans);
+}
+
+#qr-reader span {
+  font-family: var(--font-sans);
+  color: #1A1A1A;
+}
