@@ -64,10 +64,15 @@ export const getSdk = (): CryptoPaySdk => {
 // Export a default pre-initialized instance for convenience
 // Note: Providers.tsx also calls initializeSdk() which replaces this for browser requests.
 // This singleton is used by pages that import cryptoPaySdk directly.
-export const cryptoPaySdk = new CryptoPaySdk({
-  baseUrl: (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_API_URL 
+const getApiUrl = () => {
+  const url = (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_API_URL) 
     ? process.env.NEXT_PUBLIC_API_URL 
-    : "http://localhost:4000") + "/api/v1",
+    : "http://localhost:4000";
+  return url.startsWith("http") ? url : `https://${url}`;
+};
+
+export const cryptoPaySdk = new CryptoPaySdk({
+  baseUrl: `${getApiUrl()}/api/v1`,
   getToken: () => typeof window !== "undefined" ? localStorage.getItem("accessToken") : null,
 });
 

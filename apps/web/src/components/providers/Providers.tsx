@@ -9,9 +9,14 @@ import { StellarWalletProvider } from "./StellarWalletProvider";
 // Demo User ID — kept for reference if needed
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
 
+const getApiUrl = () => {
+  const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+  return url.startsWith("http") ? url : `https://${url}`;
+};
+
 // Initialize SDK with getToken for JWT auth
 const sdk = initializeSdk({
-  baseUrl: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/api/v1`,
+  baseUrl: `${getApiUrl()}/api/v1`,
   getToken: () => typeof window !== "undefined" ? localStorage.getItem("accessToken") : null,
 });
 

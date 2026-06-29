@@ -10,6 +10,14 @@ interface QrScannerProps {
 export function QrScanner({ onScanSuccess, onScanError }: QrScannerProps) {
   const scannerRef = useRef<Html5QrcodeScanner | null>(null)
 
+  const onScanSuccessRef = useRef(onScanSuccess)
+  const onScanErrorRef = useRef(onScanError)
+
+  useEffect(() => {
+    onScanSuccessRef.current = onScanSuccess
+    onScanErrorRef.current = onScanError
+  }, [onScanSuccess, onScanError])
+
   useEffect(() => {
     scannerRef.current = new Html5QrcodeScanner(
       'qr-reader',
@@ -25,12 +33,12 @@ export function QrScanner({ onScanSuccess, onScanError }: QrScannerProps) {
 
     scannerRef.current.render(
       (decodedText) => {
-        onScanSuccess(decodedText)
+        onScanSuccessRef.current(decodedText)
       },
       (error) => {
         // Only call onScanError for real errors, not every frame
         if (!error.includes('No QR code found')) {
-          onScanError?.(error)
+          onScanErrorRef.current?.(error)
         }
       }
     )
@@ -38,7 +46,7 @@ export function QrScanner({ onScanSuccess, onScanError }: QrScannerProps) {
     return () => {
       scannerRef.current?.clear().catch(console.error)
     }
-  }, [onScanSuccess, onScanError])
+  }, [])
 
   return (
     <div className="w-full">
