@@ -14,8 +14,23 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useLogger(app.get(Logger));
   app.enableCors({
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'https://start-up-track-web.vercel.app',
+      'https://start-up-track-admin.vercel.app',
+      ...(process.env.ALLOWED_ORIGINS
+        ? process.env.ALLOWED_ORIGINS.split(',')
+        : []),
+    ],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-idempotency-key',
+      'x-request-id',
+    ],
     credentials: true,
-    origin: true,
   });
   app.setGlobalPrefix("api/v1");
   app.useGlobalPipes(
