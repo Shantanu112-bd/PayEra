@@ -65,19 +65,19 @@ const contracts = [
 ];
 
 export default function Home() {
-  const { currentUserId, setCurrentUserId, isDemoMode, startTour } = useAppStore();
+  const { currentUserId, setCurrentUser, isDemoMode, startTour } = useAppStore();
   const router = useRouter();
   const { connect, publicKey, isConnecting } = useStellarWallet();
 
   // If already "logged in" via wallet or demo, redirect to dashboard
   React.useEffect(() => {
     if (publicKey) {
-      setCurrentUserId(publicKey);
+      setCurrentUser(publicKey);
       router.push("/dashboard");
     } else if (currentUserId && !isDemoMode) {
       router.push("/dashboard");
     }
-  }, [publicKey, currentUserId, isDemoMode, router, setCurrentUserId]);
+  }, [publicKey, currentUserId, isDemoMode, router, setCurrentUser]);
 
   const handleLogin = async () => {
     await connect();

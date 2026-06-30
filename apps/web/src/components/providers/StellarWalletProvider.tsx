@@ -3,14 +3,16 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import freighterApi from "@stellar/freighter-api";
 const { isConnected, requestAccess, getAddress } = freighterApi;
-import { fetchBalances, BalanceMap, getStarBalanceFromContract } from "@/lib/stellar";
+import { getWalletBalances } from "@/lib/horizon";
+import { getStarBalanceFromContract } from "@/lib/stellar";
 import { useAppStore } from "@/lib/store";
+import { cryptoPaySdk } from "@cryptopay/sdk";
 
 interface StellarWalletContextType {
   publicKey: string | null;
   isWalletInstalled: boolean;
   isConnecting: boolean;
-  balances: BalanceMap;
+  balances: { XLM: string; USDC: string; STAR: string };
   connect: () => Promise<void>;
   disconnect: () => void;
   refreshBalances: () => Promise<void>;
@@ -22,7 +24,7 @@ export function StellarWalletProvider({ children }: { children: React.ReactNode 
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [isWalletInstalled, setIsWalletInstalled] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [balances, setBalances] = useState<BalanceMap>({ XLM: "0.00", USDC: "0.00", STAR: "0.00" });
+  const [balances, setBalances] = useState({ XLM: "0.00", USDC: "0.00", STAR: "0.00" });
 
   useEffect(() => {
     // Check if Freighter is installed
@@ -34,18 +36,18 @@ export function StellarWalletProvider({ children }: { children: React.ReactNode 
     checkFreighter();
   }, []);
 
-  const refreshBalances = useCallback(async () => {
-    if (!publicKey) return;
-    const isValidStellarAddress = /^G[A-Z2-7]{55}$/.test(publicKey);
-    if (!isValidStellarAddress) {
-      setBalances({ XLM: "100.00", USDC: "50.00", STAR: "150.00" });
-      return;
-    }
+  const refreshBalances = useCallback(async (addressToRefresh?: string) => {
+    const targetAddress = addressToRefresh || publicKey;
+    if (!targetAddress) return;
+    
     try {
-      const b = await fetchBalances(publicKey);
-      const starBal = await getStarBalanceFromContract(publicKey);
-      b.STAR = starBal;
-      setBalances(b);
+      const b = await getWalletBalances(targetAddress);
+      const starBal = await getStarBalanceFromContract(targetAddress);
+      setBalances({
+        XLM: b.xlm,
+        USDC: b.usdc,
+        STAR: starBal,
+      });
     } catch (error) {
       console.error("Failed to fetch balances", error);
     }
@@ -65,26 +67,51 @@ export function StellarWalletProvider({ children }: { children: React.ReactNode 
     setIsConnecting(true);
     try {
       if (!isWalletInstalled) {
-        if (isDemoMode) {
-          // Fallback for demo when no wallet is installed
-          setPublicKey("GBRP4ZDXSSQAJTZT25ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ");
-          return;
-        } else {
-          throw new Error("Freighter wallet is not installed. Please install Freighter extension.");
-        }
+        throw new Error("Freighter wallet is not installed. Please install Freighter extension.");
       }
       
       const access = await requestAccess();
-      if (access) {
-        const result = await getAddress();
-        if (result && !result.error && result.address) {
-          setPublicKey(result.address);
-        } else {
-          throw new Error(result?.error || "Failed to get wallet address");
-        }
-      } else {
+      if (!access) {
         throw new Error("Access denied by user");
       }
+
+      const result = await getAddress();
+      if (!result || result.error || !result.address) {
+        throw new Error(result?.error || "Failed to get wallet address");
+      }
+      
+      const address = result.address;
+
+      // Step 1: Get challenge from backend
+      const challenge = await cryptoPaySdk.auth.walletChallenge({
+        address,
+        network: 'STELLAR',
+        provider: 'FREIGHTER',
+      });
+
+      // Step 2: Sign the challenge message with Freighter
+      const signResult = await freighterApi.signMessage(challenge.message, {
+        address,
+      });
+
+      // Step 3: Submit signed challenge to backend, get real JWT
+      const loginResult = await cryptoPaySdk.auth.walletLogin({
+        address,
+        network: 'STELLAR',
+        provider: 'FREIGHTER',
+        nonce: challenge.nonce,
+        signature: signResult.signedMessage as string,
+      });
+
+      // Step 4: Store real tokens
+      useAppStore.getState().setTokens(
+        loginResult.auth.accessToken,
+        loginResult.auth.refreshToken
+      );
+      useAppStore.getState().setCurrentUser(loginResult.user.id, loginResult.user.displayName);
+
+      setPublicKey(address);
+      await refreshBalances(address);
     } catch (e: any) {
       console.error("Wallet connection failed", e);
       alert(e.message || "Failed to connect to Freighter wallet.");

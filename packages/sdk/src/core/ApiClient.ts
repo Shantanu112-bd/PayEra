@@ -74,6 +74,11 @@ export class ApiClient {
     }
 
     if (!response.ok) {
+      if (response.status === 401 && typeof window !== "undefined" && !endpoint.includes("login")) {
+        localStorage.removeItem("payra-auth-storage");
+        window.location.href = "/";
+      }
+
       let errorBody: ApiErrorResponse | any;
       try {
         errorBody = await response.json();

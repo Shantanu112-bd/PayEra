@@ -30,8 +30,8 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post("wallet/challenge")
   @ApiOperation({ summary: "Generate a mock wallet login challenge." })
-  walletChallenge(@Body() dto: WalletChallengeDto) {
-    return this.authService.issueWalletChallenge(dto);
+  async walletChallenge(@Body() dto: WalletChallengeDto) {
+    return await this.authService.issueWalletChallenge(dto);
   }
 
   @Post("wallet/login")

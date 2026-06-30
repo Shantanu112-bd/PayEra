@@ -14,7 +14,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useLogger(app.get(Logger));
   app.enableCors({
-    origin: function (origin, callback) {
+    origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
       if (!origin) return callback(null, true);
       const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [];
       if (

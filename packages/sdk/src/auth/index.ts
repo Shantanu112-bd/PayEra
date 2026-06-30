@@ -8,12 +8,12 @@ export class AuthSdk {
     return this.client.post<{ token: string; user: User }>("/auth/mock-login", { username });
   }
 
-  async walletChallenge(publicKey: string): Promise<{ challenge: string; expiresAt: string }> {
-    return this.client.post<{ challenge: string; expiresAt: string }>("/auth/wallet/challenge", { publicKey });
+  async walletChallenge(data: { address: string; network: string; provider: string }): Promise<{ message: string; nonce: string; expiresAt: string }> {
+    return this.client.post<{ message: string; nonce: string; expiresAt: string }>("/auth/wallet/challenge", data);
   }
 
-  async walletLogin(publicKey: string, signature: string, challenge: string): Promise<{ token: string; user: User }> {
-    return this.client.post<{ token: string; user: User }>("/auth/wallet/login", { publicKey, signature, challenge });
+  async walletLogin(data: { address: string; network: string; provider: string; nonce: string; signature: string }): Promise<{ auth: { accessToken: string; refreshToken: string }; user: User }> {
+    return this.client.post<{ auth: { accessToken: string; refreshToken: string }; user: User }>("/auth/wallet/login", data);
   }
 
   async getCurrentUser(): Promise<User> {

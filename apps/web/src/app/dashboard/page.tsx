@@ -45,14 +45,12 @@ export default function DashboardPage() {
   });
 
   const { publicKey, balances, isWalletInstalled, connect } = useStellarWallet();
-  const { isDemoMode, currentUserId } = useAppStore();
+  const { currentUserId, currentUserDisplayName } = useAppStore();
   
-  const effectivePublicKey = isDemoMode
-    ? (publicKey || "GBRP4ZDXSSQAJTZT25ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ55ZBQ")
-    : publicKey;
+  const effectivePublicKey = publicKey;
   
   const primaryWallet = effectivePublicKey 
-    ? { id: "freighter-1", address: effectivePublicKey, type: "FREIGHTER", isPrimary: true, name: "Freighter Wallet (Demo)" } as any
+    ? { id: "freighter-1", address: effectivePublicKey, type: "FREIGHTER", isPrimary: true, name: "Freighter Wallet" } as any
     : null;
 
   const shortAddress = effectivePublicKey 
@@ -71,7 +69,7 @@ export default function DashboardPage() {
         <div>
           <SectionTag label="DASHBOARD" />
           <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-ibm-plex-mono)] text-ink">
-            Good morning, Demo User
+            Good morning, {currentUserDisplayName || 'there'}
           </h1>
         </div>
         <div className="flex items-center gap-3">

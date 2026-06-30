@@ -1,4 +1,7 @@
-import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import { CACHE_MANAGER } from "@nestjs/cache-manager";
+import { Cache } from "cache-manager";
+import { Keypair } from "@stellar/stellar-sdk";
 import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcryptjs";
 
@@ -20,6 +23,7 @@ import type { RefreshDto } from "./dto/refresh.dto";
 export class AuthService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
     private readonly jwtService: JwtService,
   ) {}
 
@@ -88,10 +92,13 @@ export class AuthService {
     };
   }
 
-  issueWalletChallenge(dto: WalletChallengeDto) {
+  async issueWalletChallenge(dto: WalletChallengeDto) {
     const nonce = createReadableId("NONCE");
     const issuedAt = new Date();
     const expiresAt = new Date(issuedAt.getTime() + 5 * 60 * 1000);
+
+    // Store nonce as valid/unused with 5 min TTL
+    await this.cacheManager.set(`nonce:${nonce}`, 'issued', 5 * 60 * 1000);
 
     return {
       expiresAt,
@@ -101,6 +108,31 @@ export class AuthService {
   }
 
   async walletLogin(dto: WalletLoginDto) {
+    // Verify nonce was issued by us and hasn't been used
+    const nonceStatus = await this.cacheManager.get(`nonce:${dto.nonce}`);
+    
+    if (nonceStatus !== 'issued') {
+      throw new UnauthorizedException('Invalid or expired nonce');
+    }
+
+    // Immediately invalidate nonce to prevent replay
+    await this.cacheManager.del(`nonce:${dto.nonce}`);
+    const expectedMessage = `CryptoPay Network login\nnetwork=${dto.network}\nprovider=${dto.provider}\naddress=${dto.address}\nnonce=${dto.nonce}`;
+
+    let isValidSignature = false;
+    try {
+      const keypair = Keypair.fromPublicKey(dto.address);
+      const messageBuffer = Buffer.from(expectedMessage, 'utf-8');
+      const signatureBuffer = Buffer.from(dto.signature, 'base64');
+      isValidSignature = keypair.verify(messageBuffer, signatureBuffer);
+    } catch (error) {
+      throw new UnauthorizedException('Invalid signature format');
+    }
+
+    if (!isValidSignature) {
+      throw new UnauthorizedException('Signature verification failed');
+    }
+
     const addressNormalized = normalizeWalletAddress(dto.address);
     const wallet = await this.prisma.wallet.findUnique({
       include: { user: true },

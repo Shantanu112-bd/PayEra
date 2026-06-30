@@ -6,11 +6,11 @@ import { useAppStore } from "../../lib/store";
 import { useRouter } from "next/navigation";
 
 export default function ProfilePage() {
-  const { setCurrentUserId } = useAppStore();
+  const { setCurrentUser } = useAppStore();
   const router = useRouter();
 
   const handleLogout = () => {
-    setCurrentUserId(null);
+    setCurrentUser(null);
     router.push("/");
   };
 

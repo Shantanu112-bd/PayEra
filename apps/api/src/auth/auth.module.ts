@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { CacheModule } from "@nestjs/cache-manager";
 import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
 
@@ -8,6 +9,10 @@ import { JwtStrategy } from "./jwt.strategy";
 
 @Module({
   imports: [
+    CacheModule.register({
+      ttl: 5 * 60 * 1000,
+      max: 10000,
+    }),
     PassportModule,
     JwtModule.registerAsync({
       useFactory: () => ({

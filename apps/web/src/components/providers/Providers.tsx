@@ -17,7 +17,19 @@ const getApiUrl = () => {
 // Initialize SDK with getToken for JWT auth
 const sdk = initializeSdk({
   baseUrl: `${getApiUrl()}/api/v1`,
-  getToken: () => typeof window !== "undefined" ? localStorage.getItem("accessToken") : null,
+  getToken: () => {
+    if (typeof window === "undefined") return null;
+    try {
+      const storageStr = localStorage.getItem("payra-auth-storage");
+      if (storageStr) {
+        const parsed = JSON.parse(storageStr);
+        return parsed?.state?.accessToken || null;
+      }
+    } catch (e) {
+      console.error("Failed to parse auth storage", e);
+    }
+    return null;
+  },
 });
 
 export function Providers({ children }: { children: React.ReactNode }) {

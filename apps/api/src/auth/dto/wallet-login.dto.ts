@@ -23,11 +23,11 @@ export class WalletLoginDto {
   @MaxLength(512)
   signature!: string;
 
-  @ApiProperty({ example: "CryptoPay login: ..." })
+  @ApiProperty({ example: "NONCE_xxxxx" })
   @IsString()
   @MinLength(8)
   @MaxLength(512)
-  message!: string;
+  nonce!: string;
 
   @ApiPropertyOptional({ example: "Asha Rao", maxLength: 160 })
   @IsOptional()

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 const DEMO_MODE = typeof window !== "undefined"
   ? process.env.NEXT_PUBLIC_DEMO_MODE === "true"
@@ -8,7 +9,8 @@ const TOUR_STORAGE_KEY = "cryptopay_tour_complete";
 
 interface AppState {
   currentUserId: string | null;
-  setCurrentUserId: (id: string | null) => void;
+  currentUserDisplayName: string | null;
+  setCurrentUser: (id: string | null, displayName?: string | null) => void;
   // Authentication tokens
   accessToken: string | null;
   refreshToken: string | null;
@@ -27,29 +29,23 @@ interface AppState {
   toggleSidebar: () => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
-  // Hardcoded demo user for MVP — matches seeded DB user
-  currentUserId: "00000000-0000-0000-0000-000000000001",
-  setCurrentUserId: (id) => set({ currentUserId: id }),
+export const useAppStore = create<AppState>()(
+  persist(
+    (set) => ({
+      currentUserId: null,
+      currentUserDisplayName: null,
+      setCurrentUser: (id, displayName) => set({ currentUserId: id, currentUserDisplayName: displayName || null }),
 
-  accessToken: typeof window !== "undefined" ? localStorage.getItem("accessToken") : null,
-  refreshToken: typeof window !== "undefined" ? localStorage.getItem("refreshToken") : null,
+      accessToken: null,
+      refreshToken: null,
 
-  setTokens: (access, refresh) => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("accessToken", access);
-      localStorage.setItem("refreshToken", refresh);
-    }
-    set({ accessToken: access, refreshToken: refresh });
-  },
+      setTokens: (access, refresh) => {
+        set({ accessToken: access, refreshToken: refresh });
+      },
 
-  clearTokens: () => {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
-    }
-    set({ accessToken: null, refreshToken: null, currentUserId: null });
-  },
+      clearTokens: () => {
+        set({ accessToken: null, refreshToken: null, currentUserId: null, currentUserDisplayName: null });
+      },
 
   isDemoMode: DEMO_MODE,
 
@@ -58,7 +54,7 @@ export const useAppStore = create<AppState>((set) => ({
     ? localStorage.getItem(TOUR_STORAGE_KEY) === "true"
     : false,
 
-  startTour: () => set({ tourStep: 1, isTourComplete: false, currentUserId: "00000000-0000-0000-0000-000000000001" }),
+  startTour: () => set({ tourStep: 1, isTourComplete: false }),
 
   nextTourStep: () =>
     set((state) => {
@@ -81,4 +77,15 @@ export const useAppStore = create<AppState>((set) => ({
 
   sidebarOpen: false,
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
-}));
+    }),
+    {
+      name: "payra-auth-storage",
+      partialize: (state) => ({
+        accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
+        currentUserId: state.currentUserId,
+        currentUserDisplayName: state.currentUserDisplayName,
+      }),
+    }
+  )
+);
