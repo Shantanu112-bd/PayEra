@@ -112,7 +112,7 @@ export class AuthService {
     const nonceStatus = await this.cacheManager.get(`nonce:${dto.nonce}`);
     
     if (nonceStatus !== 'issued') {
-      throw new UnauthorizedException('Invalid or expired nonce');
+      throw new UnauthorizedException(`Invalid or expired nonce: ${dto.nonce}, status: ${nonceStatus}`);
     }
 
     // Immediately invalidate nonce to prevent replay
@@ -125,12 +125,12 @@ export class AuthService {
       const messageBuffer = Buffer.from(expectedMessage, 'utf-8');
       const signatureBuffer = Buffer.from(dto.signature, 'base64');
       isValidSignature = keypair.verify(messageBuffer, signatureBuffer);
-    } catch (error) {
-      throw new UnauthorizedException('Invalid signature format');
+    } catch (error: any) {
+      throw new UnauthorizedException(`Invalid signature format: ${error.message} | sig length: ${dto.signature?.length}`);
     }
 
     if (!isValidSignature) {
-      throw new UnauthorizedException('Signature verification failed');
+      throw new UnauthorizedException(`Signature verification failed. Expected msg: ${expectedMessage.replace(/\n/g, '\\n')}`);
     }
 
     const addressNormalized = normalizeWalletAddress(dto.address);
