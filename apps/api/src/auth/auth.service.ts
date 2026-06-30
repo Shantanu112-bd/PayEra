@@ -123,29 +123,65 @@ export class AuthService {
     try {
       const keypair = Keypair.fromPublicKey(dto.address);
       
-      // Freighter (SEP-53) signs the SHA-256 hash of the prefixed message
-      const prefix = Buffer.from('Stellar Signed Message:\n');
-      const messageBytes = Buffer.from(expectedMessage, 'utf-8');
-      const payload = Buffer.concat([prefix, messageBytes]);
-      
+      // Normalize base64 if it's URL-safe or missing padding
+      let sigStr = dto.signature;
+      if (sigStr.length !== 128 || !/^[0-9a-fA-F]+$/.test(sigStr)) {
+        sigStr = sigStr.replace(/-/g, '+').replace(/_/g, '/');
+        while (sigStr.length % 4 !== 0) {
+          sigStr += '=';
+        }
+      }
+
+      // Determine signature buffer (base64 or hex)
+      let signatureBuffer: Buffer;
+      if (sigStr.length === 128 && /^[0-9a-fA-F]+$/.test(sigStr)) {
+        signatureBuffer = Buffer.from(sigStr, 'hex');
+      } else {
+        signatureBuffer = Buffer.from(sigStr, 'base64');
+      }
+
       const crypto = require('crypto');
-      const messageHash = crypto.createHash('sha256').update(payload).digest();
-      
-      const signatureBuffer = Buffer.from(dto.signature, 'base64');
-      isValidSignature = keypair.verify(messageHash, signatureBuffer);
-      
-      if (!isValidSignature) {
-        // Fallback: Some clients sign the raw payload directly instead of the hash
-        isValidSignature = keypair.verify(payload, signatureBuffer);
+
+      // Generate messages with different newlines to be platform agnostic
+      const msgLF = expectedMessage.replace(/\r\n/g, '\n');
+      const msgCRLF = msgLF.replace(/\n/g, '\r\n');
+
+      const messageVersions = [msgLF, msgCRLF];
+      const prefixes = [
+        Buffer.from('Stellar Signed Message:\n'),
+        Buffer.from('Stellar Signed Message:\r\n')
+      ];
+
+      for (const msg of messageVersions) {
+        const msgBytes = Buffer.from(msg, 'utf-8');
+        
+        // Try raw message directly (unprefixed)
+        if (keypair.verify(msgBytes, signatureBuffer)) {
+          isValidSignature = true;
+          break;
+        }
+
+        for (const prefix of prefixes) {
+          const payload = Buffer.concat([prefix, msgBytes]);
+          
+          // Try prefixed payload directly
+          if (keypair.verify(payload, signatureBuffer)) {
+            isValidSignature = true;
+            break;
+          }
+
+          // Try SHA-256 hash of the prefixed payload
+          const hash = crypto.createHash('sha256').update(payload).digest();
+          if (keypair.verify(hash, signatureBuffer)) {
+            isValidSignature = true;
+            break;
+          }
+        }
+        if (isValidSignature) break;
       }
-      
+
       if (!isValidSignature) {
-        // Fallback 2: Verify without the Stellar Signed Message prefix at all
-        isValidSignature = keypair.verify(messageBytes, signatureBuffer);
-      }
-      
-      if (!isValidSignature) {
-         console.error(`Signature verification completely failed! Addr: ${dto.address}, sig base64: ${dto.signature}, sig bytes length: ${signatureBuffer.length}`);
+         console.error(`Signature verification completely failed! Addr: ${dto.address}, normalizedSig: ${sigStr}, expectedMsg: ${expectedMessage}`);
       }
     } catch (error: any) {
       throw new UnauthorizedException(`Invalid signature format: ${error.message} | sig length: ${dto.signature?.length}`);
