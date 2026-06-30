@@ -73,7 +73,20 @@ const getApiUrl = () => {
 
 export const cryptoPaySdk = new CryptoPaySdk({
   baseUrl: `${getApiUrl()}/api/v1`,
-  getToken: () => typeof window !== "undefined" ? localStorage.getItem("accessToken") : null,
+  getToken: () => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("payra-auth-storage");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          return parsed?.state?.accessToken || null;
+        }
+      } catch (e) {
+        console.error("Failed to parse auth storage in global SDK", e);
+      }
+    }
+    return null;
+  },
 });
 
 // Also export raw classes if tree-shaking and custom instantiation is needed
