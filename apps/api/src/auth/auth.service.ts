@@ -122,9 +122,17 @@ export class AuthService {
     let isValidSignature = false;
     try {
       const keypair = Keypair.fromPublicKey(dto.address);
-      const messageBuffer = Buffer.from(expectedMessage, 'utf-8');
+      
+      // Freighter (SEP-53) signs the SHA-256 hash of the prefixed message
+      const prefix = Buffer.from('Stellar Signed Message:\n');
+      const messageBytes = Buffer.from(expectedMessage, 'utf-8');
+      const payload = Buffer.concat([prefix, messageBytes]);
+      
+      const crypto = require('crypto');
+      const messageHash = crypto.createHash('sha256').update(payload).digest();
+      
       const signatureBuffer = Buffer.from(dto.signature, 'base64');
-      isValidSignature = keypair.verify(messageBuffer, signatureBuffer);
+      isValidSignature = keypair.verify(messageHash, signatureBuffer);
     } catch (error: any) {
       throw new UnauthorizedException(`Invalid signature format: ${error.message} | sig length: ${dto.signature?.length}`);
     }
