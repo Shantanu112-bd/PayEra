@@ -6,6 +6,8 @@ import { queryClient } from "../../lib/query-client";
 import { initializeSdk } from "@cryptopay/sdk";
 import { StellarWalletProvider } from "./StellarWalletProvider";
 
+import { useAppStore } from "../../lib/store";
+
 // Demo User ID — kept for reference if needed
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -19,16 +21,7 @@ const sdk = initializeSdk({
   baseUrl: `${getApiUrl()}/api/v1`,
   getToken: () => {
     if (typeof window === "undefined") return null;
-    try {
-      const storageStr = localStorage.getItem("payra-auth-storage");
-      if (storageStr) {
-        const parsed = JSON.parse(storageStr);
-        return parsed?.state?.accessToken || null;
-      }
-    } catch (e) {
-      console.error("Failed to parse auth storage", e);
-    }
-    return null;
+    return useAppStore.getState().accessToken || null;
   },
 });
 
