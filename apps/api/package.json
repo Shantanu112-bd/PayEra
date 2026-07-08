@@ -72,6 +72,9 @@
     "moduleNameMapper": {
       "^cockatiel$": "<rootDir>/common/circuit-breaker/__mocks__/cockatiel.mock.ts"
     },
+    "transformIgnorePatterns": [
+      "/node_modules/(?!(@noble|@stellar|@stellar/stellar-sdk|uint8array-extras)/)"
+    ],
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],

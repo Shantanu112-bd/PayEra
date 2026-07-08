@@ -3,6 +3,7 @@ import { AuthService } from './auth.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { JwtService } from '@nestjs/jwt'
 import { BadRequestException } from '@nestjs/common'
+import { CACHE_MANAGER } from '@nestjs/cache-manager'
 
 const mockPrisma = {
   user: {
@@ -33,6 +34,7 @@ describe('AuthService', () => {
         AuthService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwt },
+        { provide: CACHE_MANAGER, useValue: { get: jest.fn(), set: jest.fn(), del: jest.fn() } },
       ],
     }).compile()
 
