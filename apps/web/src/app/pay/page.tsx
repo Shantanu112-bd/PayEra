@@ -30,7 +30,7 @@ export default function PayPage() {
   
   const [scannedVpa, setScannedVpa] = React.useState<string>("");
   const [scannedMerchantName, setScannedMerchantName] = React.useState<string>("");
-  const [merchantId, setMerchantId] = React.useState<string | null>(null);
+  const [scannedMerchantId, setScannedMerchantId] = React.useState<string | null>(null);
   const [amountPaise, setAmountPaise] = React.useState<string>("0");
   const [qrPayload, setQrPayload] = React.useState<string>("");
   const [txStatus, setTxStatus] = React.useState<string>("");
@@ -67,7 +67,8 @@ export default function PayPage() {
   const createTxMutation = useMutation({
     mutationFn: () => {
       const payload: any = {
-        merchantId: merchantId!,
+        // Fallback UUID is ONLY for testnet demo purposes where the scanned VPA is not in the Payra merchant DB
+        merchantId: scannedMerchantId || "11111111-1111-1111-1111-111111111111",
         assetIn: selectedAsset,
         amountInPaise: amountPaise,
         merchantUpiVpa: scannedVpa,
@@ -130,11 +131,11 @@ export default function PayPage() {
       if (merchant) {
         setScannedVpa(vpa);
         setScannedMerchantName(merchant.displayName);
-        setMerchantId(merchant.id);
+        setScannedMerchantId(merchant.id);
       } else {
         setScannedVpa(vpa);
         setScannedMerchantName(parsed.merchantName || vpa);
-        setMerchantId(null);
+        setScannedMerchantId(null);
       }
       setQrPayload(parsed.isValid ? decodedText : `upi://pay?pa=${vpa}&pn=${vpa}`);
       if (parsed.amount) {
@@ -146,7 +147,7 @@ export default function PayPage() {
     } catch {
       setScannedVpa(vpa);
       setScannedMerchantName(parsed.isValid ? parsed.merchantName || vpa : vpa);
-      setMerchantId(null);
+      setScannedMerchantId(null);
       setQrPayload(parsed.isValid ? decodedText : `upi://pay?pa=${vpa}&pn=${vpa}`);
       if (parsed.amount) {
         setAmountPaise((parsed.amount * 100).toFixed(0));
