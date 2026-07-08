@@ -15,6 +15,7 @@ const QrScanner = dynamic(
   () => import("../../components/payment/QrScanner").then((mod) => mod.QrScanner),
   { ssr: false }
 );
+import { PaymentConfirm } from "../../components/auth/PaymentConfirm";
 
 type PayStep = "SCAN" | "QUOTE" | "PROCESSING" | "SUCCESS";
 
@@ -25,6 +26,7 @@ export default function PayPage() {
   const [transactionId, setTransactionId] = React.useState<string | null>(null);
   const [showManualInput, setShowManualInput] = React.useState(false);
   const [manualVpa, setManualVpa] = React.useState("");
+  const [showPaymentConfirm, setShowPaymentConfirm] = React.useState(false);
   
   const [payFeeWithStar, setPayFeeWithStar] = React.useState(false);
   
@@ -343,7 +345,7 @@ export default function PayPage() {
           {/* Bottom Button */}
           <div className="absolute bottom-0 left-0 right-0">
             <button 
-              onClick={() => createTxMutation.mutate()}
+              onClick={() => setShowPaymentConfirm(true)}
               disabled={createTxMutation.isPending || Number(amountPaise) <= 0}
               className="bg-[#C5D483] text-black font-bold h-[56px] w-full flex items-center justify-center border-t-[1.5px] border-black pb-safe disabled:opacity-50"
             >
@@ -446,6 +448,21 @@ export default function PayPage() {
           </div>
         </div>
       )}
+
+      <AnimatePresence>
+        {showPaymentConfirm && (
+          <PaymentConfirm
+            amount={(Number(amountPaise) / 100).toFixed(2)}
+            merchantName={scannedMerchantName}
+            starReward={quote?.starReward || '0'}
+            onConfirmed={() => {
+              setShowPaymentConfirm(false);
+              createTxMutation.mutate();
+            }}
+            onCancelled={() => setShowPaymentConfirm(false)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }

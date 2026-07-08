@@ -29,6 +29,9 @@ interface AppState {
   // UI state
   sidebarOpen: boolean;
   toggleSidebar: () => void;
+  // Auth Lock state
+  isAppUnlocked: boolean;
+  setAppUnlocked: (unlocked: boolean) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -81,6 +84,9 @@ export const useAppStore = create<AppState>()(
 
   sidebarOpen: false,
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+
+  isAppUnlocked: false,
+  setAppUnlocked: (unlocked) => set({ isAppUnlocked: unlocked }),
     }),
     {
       name: "payra-auth-storage",

@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "../../lib/query-client";
 import { initializeSdk } from "@cryptopay/sdk";
 import { StellarWalletProvider } from "./StellarWalletProvider";
+import { AppLock } from "../auth/AppLock";
 
 import { useAppStore } from "../../lib/store";
 
@@ -29,8 +30,23 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <StellarWalletProvider>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <AppLockWrapper>{children}</AppLockWrapper>
       </QueryClientProvider>
     </StellarWalletProvider>
   );
+}
+
+function AppLockWrapper({ children }: { children: React.ReactNode }) {
+  const { isAppUnlocked, accessToken } = useAppStore();
+
+  if (!accessToken) {
+    // Not logged in — show wallet connect, not lock screen
+    return <>{children}</>;
+  }
+
+  if (!isAppUnlocked) {
+    return <AppLock />;
+  }
+
+  return <>{children}</>;
 }
