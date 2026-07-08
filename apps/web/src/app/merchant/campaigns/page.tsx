@@ -19,12 +19,12 @@ function SectionTag({ label }: { label: string }) {
   );
 }
 
-const DEMO_MERCHANT_ID = "11111111-1111-1111-1111-111111111111";
+const DEFAULT_MERCHANT_ID = "11111111-1111-1111-1111-111111111111";
 
 export default function CampaignsPage() {
   const [activeTab, setActiveTab] = React.useState("ALL");
   const { data: campaigns, isLoading } = useQuery({
-    queryKey: ["campaigns", DEMO_MERCHANT_ID],
+    queryKey: ["campaigns", DEFAULT_MERCHANT_ID],
     queryFn: () => cryptoPaySdk.campaigns.listCampaigns(),
   });
 

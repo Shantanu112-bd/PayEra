@@ -19,16 +19,16 @@ function SectionTag({ label }: { label: string }) {
   );
 }
 
-const DEMO_MERCHANT_ID = "11111111-1111-1111-1111-111111111111";
+const DEFAULT_MERCHANT_ID = "11111111-1111-1111-1111-111111111111";
 
 export default function MerchantDashboardPage() {
   const { data: dashboard, isLoading } = useQuery({
-    queryKey: ["merchant-dashboard", DEMO_MERCHANT_ID],
-    queryFn: () => cryptoPaySdk.analytics.getDashboardMetrics(DEMO_MERCHANT_ID),
+    queryKey: ["merchant-dashboard", DEFAULT_MERCHANT_ID],
+    queryFn: () => cryptoPaySdk.analytics.getDashboardMetrics(DEFAULT_MERCHANT_ID),
   });
 
   const { data: transactions, isLoading: txLoading } = useQuery({
-    queryKey: ["merchant-transactions", DEMO_MERCHANT_ID],
+    queryKey: ["merchant-transactions", DEFAULT_MERCHANT_ID],
     queryFn: () => cryptoPaySdk.transactions.listTransactions({ limit: 5 }),
   });
 

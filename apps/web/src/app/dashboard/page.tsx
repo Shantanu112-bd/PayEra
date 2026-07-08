@@ -3,37 +3,27 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { 
-  WalletCard, 
-  RewardBalanceCard, 
-  TransactionCard, 
-  MetricCard, 
-  Skeleton,
-  Button
-} from "@cryptopay/ui";
-import { ArrowRight, QrCode, BarChart3, Gift, History, Wallet, Check } from "lucide-react";
+import { Skeleton } from "@cryptopay/ui";
+import { Check } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useStellarWallet } from "../../components/providers/StellarWalletProvider";
 import { useAppStore } from "../../lib/store";
 import { motion } from "framer-motion";
 
-/* ─── SECTION TAG ─── */
 function SectionTag({ label }: { label: string }) {
   return (
-    <div className="section-tag">
-      <span className="tag-marker" />
-      <span className="tag-line" />
-      <span className="tag-label">{label}</span>
+    <div className="flex items-center gap-2 mb-3">
+      <span className="font-mono text-xs text-muted px-2 py-0.5 uppercase">
+        [□]———[{label}]
+      </span>
     </div>
   );
 }
 
 export default function DashboardPage() {
-  const { data: wallets, isLoading: walletsLoading } = useQuery({
-    queryKey: ["wallets"],
-    queryFn: () => cryptoPaySdk.wallets.listWallets(),
-  });
-
+  const router = useRouter();
+  
   const { data: rewards, isLoading: rewardsLoading } = useQuery({
     queryKey: ["rewards"],
     queryFn: () => cryptoPaySdk.rewards.getRewards(),
@@ -44,142 +34,132 @@ export default function DashboardPage() {
     queryFn: () => cryptoPaySdk.transactions.listTransactions({ limit: 5 }),
   });
 
-  const { publicKey, balances, isWalletInstalled, connect } = useStellarWallet();
-  const { currentUserId, currentUserDisplayName } = useAppStore();
+  const { balances } = useStellarWallet();
+  const { currentUserDisplayName } = useAppStore();
   
-  const effectivePublicKey = publicKey;
-  
-  const primaryWallet = effectivePublicKey 
-    ? { id: "freighter-1", address: effectivePublicKey, type: "FREIGHTER", isPrimary: true, name: "Freighter Wallet" } as any
-    : null;
-
-  const shortAddress = effectivePublicKey 
-    ? effectivePublicKey.slice(0, 4) + "..." + effectivePublicKey.slice(-4)
-    : "";
+  const xlmBalance = balances?.XLM || "0.00";
+  const usdcBalance = balances?.USDC || "0.00";
+  const starBalance = rewards?.totalStarAmount || "0";
 
   return (
     <motion.div 
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="space-y-8"
+      className="space-y-6 max-w-md mx-auto pb-24 pt-2"
     >
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <SectionTag label="DASHBOARD" />
-          <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-ibm-plex-mono)] text-ink">
-            Good morning, {currentUserDisplayName || 'there'}
-          </h1>
+      {/* Greeting */}
+      <h1 className="text-[16px] font-mono text-muted">
+        Good morning, {currentUserDisplayName || 'there'}
+      </h1>
+
+      {/* Balance Card */}
+      <div className="w-full bg-white border-[1.5px] border-[#1A1A1A] rounded-[20px] p-6 shadow-sm relative overflow-hidden">
+        <div className="flex justify-between items-start mb-6">
+          <div className="text-[11px] font-mono uppercase text-muted tracking-wider">
+            TOTAL BALANCE
+          </div>
+          <div className="text-[10px] font-mono bg-ink/5 border border-ink/10 px-2 py-1 rounded-full text-ink">
+            STELLAR TESTNET
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          {effectivePublicKey && (
-            <span className="text-xs font-[family-name:var(--font-ibm-plex-mono)] text-muted border-[1.5px] border-ink rounded-[50px] px-3 py-1.5 flex items-center gap-2">
-              {shortAddress}
-              <span className="status-dot-lime !w-[6px] !h-[6px]" style={{ position: 'relative' }} />
-              Testnet
-            </span>
-          )}
-          {!effectivePublicKey ? (
-            <Button onClick={connect} variant="accent">
-              <Wallet className="mr-2 h-4 w-4" /> Connect Wallet →
-            </Button>
-          ) : (
-            <Link href="/pay">
-              <Button variant="default">
-                <QrCode className="mr-2 h-4 w-4" /> Scan QR →
-              </Button>
-            </Link>
-          )}
+
+        <div className="mb-6">
+          <div className="text-4xl font-mono font-bold text-ink flex items-baseline gap-1">
+            {xlmBalance} <span className="text-xl text-muted font-medium">XLM</span>
+          </div>
+          <div className="flex items-center gap-3 mt-2 text-sm font-mono text-muted">
+            <span>{usdcBalance} USDC</span>
+            <span className="w-1 h-1 rounded-full bg-ink/20" />
+            <span className="text-[#C5D483] font-bold">{starBalance} STAR</span>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button className="flex-1 border-[1.5px] border-[#1A1A1A] rounded-full py-2 text-sm font-semibold hover:bg-ink/5 transition-colors">
+            ADD USDC
+          </button>
+          <button className="flex-1 border-[1.5px] border-[#1A1A1A] rounded-full py-2 text-sm font-semibold hover:bg-ink/5 transition-colors">
+            CASH OUT
+          </button>
         </div>
       </div>
 
-      {/* STAR Balance + Rewards */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          {!primaryWallet ? (
-            <div className="card-white flex items-center justify-center min-h-[240px] text-center">
-              <div>
-                <div className="icon-box mx-auto mb-4 !w-14 !h-14">
-                  <Wallet className="h-6 w-6" />
-                </div>
-                <p className="text-muted mb-4">Connect your Freighter wallet to view your balance and make payments.</p>
-                <Button onClick={connect} variant="accent">Connect Wallet →</Button>
-              </div>
-            </div>
-          ) : (
-            <WalletCard 
-              wallet={primaryWallet} 
-              balance={balances.USDC} 
-              assetCode="USDC" 
-            />
-          )}
-        </div>
-
-        {rewardsLoading || !rewards ? (
-          <Skeleton className="h-[180px] w-full rounded-[20px] border-[1.5px] border-ink/10" />
-        ) : (
-          <RewardBalanceCard 
-            starBalance={rewards.totalStarAmount} 
-            onClaim={() => {}} 
-          />
-        )}
-      </div>
-
-      {/* Quick Actions */}
-      <div className="flex flex-wrap gap-3">
-        {[
-          { label: "SCAN & PAY →", href: "/pay", icon: QrCode },
-          { label: "ANALYTICS →", href: "/merchant/analytics", icon: BarChart3 },
-          { label: "CAMPAIGNS →", href: "/merchant/campaigns", icon: Gift },
-          { label: "HISTORY →", href: "/history", icon: History },
-        ].map((action) => (
-          <Link key={action.label} href={action.href} className="btn-primary !py-2.5 !text-[13px]">
-            <action.icon className="w-3.5 h-3.5" />
-            {action.label}
-          </Link>
-        ))}
+      {/* Floating Scan Button (Sticky relative to content flow) */}
+      <div className="sticky top-20 z-10 flex justify-center -mt-2 mb-8">
+        <motion.button 
+          whileTap={{ scale: 0.97 }}
+          onClick={() => router.push('/pay')}
+          className="bg-[#1A1A1A] text-white rounded-full py-4 px-6 w-[80%] flex items-center justify-center gap-3 shadow-xl"
+        >
+          <span className="text-lg">⬤</span>
+          <span className="font-bold tracking-wide">SCAN & PAY</span>
+        </motion.button>
       </div>
 
       {/* Recent Activity */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <SectionTag label="RECENT" />
-          <Link href="/history">
-            <Button variant="ghost" size="sm" className="text-muted">
-              View All <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </Link>
-        </div>
+        <SectionTag label="RECENT" />
         
-        <div className="border-[1.5px] border-ink rounded-[20px] overflow-hidden bg-white">
+        <div className="space-y-3">
           {txLoading ? (
-            <div className="p-4 space-y-3">
-              {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-[12px]" />)}
-            </div>
+            Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-[16px] border-[1.5px] border-ink/20" />)
           ) : (transactions as any)?.items?.length === 0 ? (
-            <div className="text-center p-8 text-muted font-[family-name:var(--font-ibm-plex-mono)]">
+            <div className="text-center p-6 border-[1.5px] border-ink/10 rounded-[16px] bg-white text-muted font-mono text-sm">
               No recent transactions
             </div>
           ) : (
             ((transactions as any)?.items ?? []).map((tx: any) => (
-              <TransactionCard key={tx.id} transaction={tx} isOutbound={tx.type === "CRYPTO_TO_FIAT"} />
+              <div key={tx.id} className="flex items-center justify-between p-4 bg-white rounded-[16px] border-[1.5px] border-ink">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-[#F5F2EC] flex items-center justify-center border-[1.5px] border-ink">
+                    <span className="font-mono font-bold text-sm text-ink">
+                      {tx.merchantName?.substring(0, 2).toUpperCase() || 'M'}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="font-bold text-sm text-ink">{tx.merchantName || 'Merchant'}</div>
+                    <div className="text-xs text-muted font-mono">
+                      {new Date(tx.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-bold text-sm text-ink">₹{tx.amountFiat || '0.00'}</div>
+                  <div className="text-[11px] text-[#A3B359] font-bold">+{tx.rewardAmount || '0'} STAR</div>
+                </div>
+              </div>
             ))
           )}
         </div>
       </div>
 
       {/* Contract Status */}
-      <div className="space-y-4">
-        <SectionTag label="SOROBAN CONTRACTS" />
-        <div className="flex flex-wrap gap-3">
-          {["STAR Token", "Reward Engine", "Payment Engine"].map((name) => (
-            <div key={name} className="tile !flex-row !gap-2 !px-4 !py-3 cursor-pointer">
-              <span className="tile-badge !static !w-5 !h-5">
-                <Check className="w-2.5 h-2.5 text-white" />
-              </span>
-              <span className="tile-label font-[family-name:var(--font-ibm-plex-mono)]">{name}</span>
-            </div>
+      <div className="space-y-4 mt-8">
+        <SectionTag label="ON-CHAIN" />
+        <div className="space-y-3">
+          {[
+            { name: "STAR Token", address: "CCW3...X9P2" },
+            { name: "Reward Engine", address: "CBT5...3L1M" },
+            { name: "Payment Engine", address: "CDA8...K4N9" },
+          ].map(contract => (
+             <div key={contract.name} className="flex items-center justify-between p-4 bg-white rounded-[16px] border-[1.5px] border-ink">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-[#F5F2EC] flex items-center justify-center border-[1.5px] border-ink">
+                    <Check className="w-4 h-4 text-ink" />
+                  </div>
+                  <div>
+                     <div className="font-bold text-sm text-ink mb-0.5">{contract.name}</div>
+                     <Link href={`https://stellar.expert/explorer/testnet/contract/${contract.address.replace("...", "")}`} className="text-[11px] text-blue-600 underline font-mono">
+                       {contract.address}
+                     </Link>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#F5F2EC] rounded-full border border-ink/10">
+                   <div className="w-1.5 h-1.5 rounded-full bg-[#A3B359] animate-pulse" />
+                   <span className="text-[9px] font-bold tracking-wider text-ink">ACTIVE</span>
+                </div>
+             </div>
           ))}
         </div>
       </div>

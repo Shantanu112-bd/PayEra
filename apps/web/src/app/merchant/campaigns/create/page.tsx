@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cryptoPaySdk } from "@cryptopay/sdk";
 
-const DEMO_MERCHANT_ID = "11111111-1111-1111-1111-111111111111";
+const DEFAULT_MERCHANT_ID = "11111111-1111-1111-1111-111111111111";
 const DEMO_BRAND_ID = "22222222-2222-2222-2222-222222222222"; // In a real app we'd fetch this
 
 export default function CreateCampaignPage() {

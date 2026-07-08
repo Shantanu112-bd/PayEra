@@ -3,11 +3,9 @@
 import * as React from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { PaymentSuccess, Button, Skeleton } from "@cryptopay/ui";
-import { ArrowLeft, Star, Check } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, X, Square, Minus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAppStore } from "../../lib/store";
 import { parseUpiQr, isUpiVpa } from "../../lib/upi-parser";
 import { getWalletBalances } from "../../lib/horizon";
 import { getAddress } from "@stellar/freighter-api";
@@ -18,32 +16,39 @@ const QrScanner = dynamic(
   { ssr: false }
 );
 
-type PayStep = "SCAN" | "QUOTE" | "ASSET_SELECTION" | "CONFIRM" | "PROCESSING" | "SUCCESS" | "REWARD";
+type PayStep = "SCAN" | "QUOTE" | "PROCESSING" | "SUCCESS";
 
 export default function PayPage() {
   const router = useRouter();
-  const { currentUserId } = useAppStore();
   const [step, setStep] = React.useState<PayStep>("SCAN");
   const [selectedAsset, setSelectedAsset] = React.useState<"USDC" | "XLM">("USDC");
   const [transactionId, setTransactionId] = React.useState<string | null>(null);
   const [showManualInput, setShowManualInput] = React.useState(false);
   const [manualVpa, setManualVpa] = React.useState("");
-
-  // Scanned UPI QR states
+  
+  const [payFeeWithStar, setPayFeeWithStar] = React.useState(false);
+  
   const [scannedVpa, setScannedVpa] = React.useState<string>("");
   const [scannedMerchantName, setScannedMerchantName] = React.useState<string>("");
   const [merchantId, setMerchantId] = React.useState<string | null>(null);
-  const [amountPaise, setAmountPaise] = React.useState<string>("20000"); // Default 200 INR (20000 paise)
+  const [amountPaise, setAmountPaise] = React.useState<string>("0");
   const [qrPayload, setQrPayload] = React.useState<string>("");
+  const [txStatus, setTxStatus] = React.useState<string>("");
 
-  // Fetch Quote when entering QUOTE or CONFIRM states
-  const { data: quote, isLoading: quoteLoading } = useQuery({
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (showManualInput && inputRef.current) {
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [showManualInput]);
+
+  const { data: quote } = useQuery({
     queryKey: ["quote", selectedAsset, amountPaise],
-    queryFn: () => cryptoPaySdk.transactions.getQuote({ assetIn: selectedAsset, amountInPaise: amountPaise }),
-    enabled: step === "QUOTE" || step === "CONFIRM" || step === "ASSET_SELECTION",
+    queryFn: () => cryptoPaySdk.transactions.getQuote({ assetIn: selectedAsset, amountInPaise: amountPaise || "0" }),
+    enabled: step === "QUOTE" && Number(amountPaise) > 0,
   });
 
-  // Fetch Wallets for Asset Selection
   const { data: wallets } = useQuery({
     queryKey: ["wallets"],
     queryFn: () => cryptoPaySdk.wallets.listWallets(),
@@ -59,7 +64,6 @@ export default function PayPage() {
     refetchInterval: 30000,
   });
 
-  // Transaction Creation Mutation
   const createTxMutation = useMutation({
     mutationFn: () => {
       const payload: any = {
@@ -68,22 +72,19 @@ export default function PayPage() {
         amountInPaise: amountPaise,
         merchantUpiVpa: scannedVpa,
       };
-      if (qrPayload) {
-        payload.qrPayload = qrPayload;
-      }
-      if (wallets?.data?.[0]?.id) {
-        payload.walletId = wallets.data[0].id;
-      }
+      if (qrPayload) payload.qrPayload = qrPayload;
+      if (wallets?.data?.[0]?.id) payload.walletId = wallets.data[0].id;
       return cryptoPaySdk.transactions.createTransaction(payload);
     },
     onSuccess: async (data: any) => {
       setTransactionId(data.id);
       setStep("PROCESSING");
+      setTxStatus("ROUTING_STELLAR");
       
-      // Poll transaction status every 2 seconds
       const pollInterval = setInterval(async () => {
         try {
           const tx = await cryptoPaySdk.transactions.getTransaction(data.id);
+          setTxStatus(tx.status);
           if (tx.status === "COMPLETED") {
             clearInterval(pollInterval);
             setStep("SUCCESS");
@@ -97,7 +98,6 @@ export default function PayPage() {
         }
       }, 2000);
 
-      // Safety timeout after 60 seconds
       setTimeout(() => {
         clearInterval(pollInterval);
         setStep((currentStep) => {
@@ -116,10 +116,7 @@ export default function PayPage() {
     }
   });
 
-  // Handlers
   const handleScanSuccess = async (decodedText: string) => {
-    console.log("QR Scan Success:", decodedText);
-    
     const parsed = parseUpiQr(decodedText);
     if (!parsed.isValid && !isUpiVpa(decodedText)) {
       alert("Invalid QR code. Please scan a valid UPI QR code.");
@@ -128,291 +125,326 @@ export default function PayPage() {
 
     const vpa = parsed.isValid ? parsed.upiVpa : decodedText;
 
-    // Look up real merchant by VPA
     try {
       const merchant = await cryptoPaySdk.merchants.findByVpa(vpa);
       if (merchant) {
         setScannedVpa(vpa);
         setScannedMerchantName(merchant.displayName);
-        setMerchantId(merchant.id); // real merchant ID from DB
+        setMerchantId(merchant.id);
       } else {
-        // VPA not in our network yet — still allow payment with VPA only
         setScannedVpa(vpa);
         setScannedMerchantName(parsed.merchantName || vpa);
-        setMerchantId(null); // will use VPA-only flow
+        setMerchantId(null);
       }
       setQrPayload(parsed.isValid ? decodedText : `upi://pay?pa=${vpa}&pn=${vpa}`);
       if (parsed.amount) {
         setAmountPaise((parsed.amount * 100).toFixed(0));
+      } else {
+        setAmountPaise("");
       }
       setStep("QUOTE");
-    } catch (e) {
-      console.error("Merchant lookup failed", e);
+    } catch {
       setScannedVpa(vpa);
       setScannedMerchantName(parsed.isValid ? parsed.merchantName || vpa : vpa);
       setMerchantId(null);
       setQrPayload(parsed.isValid ? decodedText : `upi://pay?pa=${vpa}&pn=${vpa}`);
       if (parsed.amount) {
         setAmountPaise((parsed.amount * 100).toFixed(0));
+      } else {
+        setAmountPaise("");
       }
       setStep("QUOTE");
     }
   };
 
-  const handleAssetSelect = (asset: "USDC" | "XLM") => {
-    setSelectedAsset(asset);
-    setStep("CONFIRM");
-  };
-
-  // Variants for Framer Motion
-  const slideVariants = {
-    enter: { x: 50, opacity: 0 },
-    center: { x: 0, opacity: 1 },
-    exit: { x: -50, opacity: 0 },
-  };
+  const processingStepIndex = txStatus === "ROUTING_STELLAR" ? 0 : txStatus === "SETTLING" ? 1 : txStatus === "REWARDING" || txStatus === "COMPLETED" ? 2 : 0;
 
   return (
-    <div className="max-w-md mx-auto py-8 px-4 min-h-[calc(100vh-140px)] flex flex-col justify-center relative">
-      <AnimatePresence mode="wait">
-        
-        {/* STEP 1: SCAN */}
-        {step === "SCAN" && (
-          <motion.div key="scan" variants={slideVariants} initial="enter" animate="center" exit="exit" className="w-full">
-            <div className="bg-white border-[1.5px] border-ink rounded-[20px] p-6 relative overflow-hidden">
-              <QrScanner
-                onScanSuccess={handleScanSuccess}
-                onScanError={(err) => {
-                  console.error("Scanner Error:", err);
+    <>
+      {step === "SCAN" && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+          <div className="absolute inset-0 overflow-hidden">
+            <QrScanner
+              onScanSuccess={handleScanSuccess}
+              onScanError={() => {}}
+            />
+          </div>
+          {/* Overlay 40% */}
+          <div className="absolute inset-0 bg-black/40 pointer-events-none" />
+          
+          {/* Top Bar */}
+          <div className="absolute top-0 left-0 right-0 p-4 pt-safe flex items-center z-10">
+            <button onClick={() => router.push('/dashboard')} className="p-2 bg-white/20 rounded-full text-white backdrop-blur-md">
+              <ArrowLeft className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Scan Box */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none">
+            <div className="relative w-[280px] h-[280px]">
+              {/* 4 corner brackets */}
+              <div className="absolute top-0 left-0 w-6 h-6 border-t-[3px] border-l-[3px] border-white" />
+              <div className="absolute top-0 right-0 w-6 h-6 border-t-[3px] border-r-[3px] border-white" />
+              <div className="absolute bottom-0 left-0 w-6 h-6 border-b-[3px] border-l-[3px] border-white" />
+              <div className="absolute bottom-0 right-0 w-6 h-6 border-b-[3px] border-r-[3px] border-white" />
+            </div>
+            <p className="mt-8 text-white text-[14px]">Point at any UPI QR code</p>
+          </div>
+
+          {/* Bottom Button */}
+          <div className="absolute bottom-12 left-0 right-0 flex justify-center z-10">
+            <button onClick={() => setShowManualInput(true)} className="text-white text-[14px] px-6 py-3 bg-white/20 rounded-full backdrop-blur-md">
+              Enter UPI ID manually
+            </button>
+          </div>
+        </div>
+      )}
+
+      <AnimatePresence>
+        {step === "SCAN" && showManualInput && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 z-[60]"
+              onClick={() => setShowManualInput(false)}
+            />
+            <motion.div
+              initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-[24px] p-6 z-[70] pb-safe"
+            >
+              <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-6" />
+              <h2 className="text-[16px] font-bold font-mono text-center mb-6 text-black">Enter UPI ID</h2>
+              <input
+                ref={inputRef}
+                type="text"
+                value={manualVpa}
+                onChange={(e) => setManualVpa(e.target.value)}
+                placeholder="merchant@upi"
+                className="w-full border-[1.5px] border-black rounded-[12px] p-4 font-mono mb-4 outline-none focus:ring-2 focus:ring-[#C5D483]/50 text-black bg-white"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && manualVpa.trim()) {
+                    handleScanSuccess(manualVpa.trim());
+                    setShowManualInput(false);
+                    setManualVpa("");
+                  }
                 }}
               />
-            </div>
-            <div className="mt-4 space-y-3">
-              <button
-                onClick={() => setShowManualInput(prev => !prev)}
-                className="btn-primary w-full !py-3"
+              <button 
+                onClick={() => {
+                  if (manualVpa.trim()) {
+                    handleScanSuccess(manualVpa.trim());
+                    setShowManualInput(false);
+                    setManualVpa("");
+                  }
+                }}
+                className="w-full bg-[#C5D483] text-black font-bold py-4 rounded-[12px]"
               >
-                Enter VPA manually
+                CONTINUE →
               </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
-              {showManualInput && (
-                <div className="flex gap-2 mt-2">
-                  <input
-                    type="text"
-                    value={manualVpa}
-                    onChange={(e) => setManualVpa(e.target.value)}
-                    placeholder="merchant@upi"
-                    className="flex-1 border-[1.5px] border-ink rounded-[12px] px-4 py-3 font-[family-name:var(--font-ibm-plex-mono)] text-sm focus:outline-none bg-white"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && manualVpa.trim()) {
-                        handleScanSuccess(manualVpa.trim());
-                        setShowManualInput(false);
-                        setManualVpa("");
-                      }
-                    }}
+      {step === "QUOTE" && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col text-black">
+          {/* Top section */}
+          <div className="h-[40%] flex flex-col items-center justify-center relative bg-gray-50/50">
+            <button onClick={() => setStep("SCAN")} className="absolute top-4 left-4 pt-safe p-2 text-black">
+              <ArrowLeft className="w-6 h-6" />
+            </button>
+            
+            <div className="w-12 h-12 rounded-full border-[1.5px] border-black flex items-center justify-center font-bold text-lg bg-white mb-4">
+              {scannedMerchantName ? scannedMerchantName.slice(0, 2).toUpperCase() : "MP"}
+            </div>
+            <h2 className="font-bold text-[20px] mb-2">{scannedMerchantName || "Merchant"}</h2>
+            <div className="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold rounded-md flex items-center gap-1">
+              UPI Verified <span className="text-[10px]">✓</span>
+            </div>
+          </div>
+
+          {/* Middle section */}
+          <div className="flex-1 px-6 pt-6 flex flex-col items-center overflow-y-auto pb-[60px]">
+            <span className="text-[12px] font-mono text-gray-500 mb-2">You are paying</span>
+            <div className="flex items-center justify-center mb-8">
+              <span className="text-[48px] font-mono font-bold">₹</span>
+              <input
+                type="number"
+                value={amountPaise ? (Number(amountPaise) / 100).toString() : ""}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val) && val >= 0) setAmountPaise((val * 100).toFixed(0));
+                  else setAmountPaise("");
+                }}
+                placeholder="0.00"
+                className="text-[48px] font-mono font-bold text-center w-[200px] outline-none bg-transparent"
+              />
+            </div>
+
+            {/* Asset pills */}
+            <div className="flex gap-2 w-full mb-8">
+              <button 
+                onClick={() => setSelectedAsset("XLM")}
+                className={`flex-1 py-3 px-2 rounded-[12px] border-[1.5px] border-black text-center whitespace-nowrap transition-colors flex flex-col items-center ${selectedAsset === "XLM" ? "bg-black text-white" : "bg-white text-black"}`}
+              >
+                <span className="font-bold">XLM</span>
+                <span className="opacity-70 text-[10px]">{walletBalances?.xlm || "0.00"} available</span>
+              </button>
+              <button 
+                onClick={() => setSelectedAsset("USDC")}
+                className={`flex-1 py-3 px-2 rounded-[12px] border-[1.5px] border-black text-center whitespace-nowrap transition-colors flex flex-col items-center ${selectedAsset === "USDC" ? "bg-black text-white" : "bg-white text-black"}`}
+              >
+                <span className="font-bold">USDC</span>
+                <span className="opacity-70 text-[10px]">{walletBalances?.usdc || "0.00"} available</span>
+              </button>
+            </div>
+
+            {/* Breakdown card */}
+            <div className="w-full border-[1.5px] border-black rounded-[16px] p-4 space-y-3 mb-6">
+              <div className="flex justify-between text-[14px]">
+                <span className="text-gray-500">Rate</span>
+                <span className="font-mono">1 {selectedAsset} = ₹{(Number(amountPaise) / 100 / (quote?.usdcAmount || 2.40)).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-[14px]">
+                <span className="text-gray-500">Network fee</span>
+                <span className="font-mono">~0.00001 XLM</span>
+              </div>
+              <div className="flex justify-between text-[14px]">
+                <span className="text-gray-500">Platform fee</span>
+                <span className="font-mono">{payFeeWithStar ? <><span className="line-through text-gray-400 mr-1">₹0.50</span><span className="text-green-600 font-bold">FREE</span></> : "₹0.50"}</span>
+              </div>
+              <div className="border-t-[1.5px] border-black border-dashed pt-3 flex justify-between items-center">
+                <span className="font-bold">STAR reward</span>
+                <span className="bg-[#C5D483] px-3 py-1 rounded-full font-bold text-[12px] border-[1.5px] border-black">
+                  +{quote?.starReward || "25"} ⭐
+                </span>
+              </div>
+            </div>
+
+            {/* STAR fee toggle */}
+            <div className="w-full flex items-center justify-between mb-8">
+              <div>
+                <div className="font-bold">Pay fee with STAR</div>
+                <div className={`text-[12px] mt-0.5 ${payFeeWithStar ? "text-red-500 font-bold" : "text-gray-500"}`}>
+                  {payFeeWithStar ? "−250 STAR burned" : "Burns 250 STAR · Saves ₹0.50"}
+                </div>
+              </div>
+              <button 
+                onClick={() => setPayFeeWithStar(!payFeeWithStar)}
+                className={`w-12 h-6 rounded-full p-1 transition-colors flex ${payFeeWithStar ? "bg-black justify-end" : "bg-gray-300 justify-start"}`}
+              >
+                <motion.div layout className="w-4 h-4 bg-white rounded-full shadow-sm" />
+              </button>
+            </div>
+          </div>
+
+          {/* Bottom Button */}
+          <div className="absolute bottom-0 left-0 right-0">
+            <button 
+              onClick={() => createTxMutation.mutate()}
+              disabled={createTxMutation.isPending || Number(amountPaise) <= 0}
+              className="bg-[#C5D483] text-black font-bold h-[56px] w-full flex items-center justify-center border-t-[1.5px] border-black pb-safe disabled:opacity-50"
+            >
+              {createTxMutation.isPending ? "PROCESSING..." : "CONFIRM PAYMENT →"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "PROCESSING" && (
+        <div className="fixed inset-0 z-50 bg-[#E8E4DC] flex flex-col items-center justify-center p-6 text-black">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+            className="w-16 h-16 border-[4px] border-black border-t-transparent rounded-full mb-8"
+          />
+          <h2 className="font-mono font-bold text-[20px] mb-2">Processing on Stellar</h2>
+          <p className="text-[13px] text-gray-500 mb-12">Do not close this app</p>
+
+          <div className="flex items-center gap-2 w-full justify-center">
+            {["Signing", "Broadcasting", "Confirming"].map((label, idx) => {
+              const isActive = processingStepIndex === idx;
+              const isDone = processingStepIndex > idx;
+              return (
+                <div 
+                  key={label}
+                  className={`px-3 py-1.5 rounded-full font-bold text-[12px] border-[1.5px] transition-colors ${
+                    isActive ? "bg-black text-white border-black" : isDone ? "bg-[#C5D483] text-black border-black" : "bg-transparent text-gray-400 border-gray-400"
+                  }`}
+                >
+                  {label}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {step === "SUCCESS" && (
+        <div className="fixed inset-0 z-50 bg-[#E8E4DC] flex items-center justify-center p-6">
+          <div className="relative w-full max-w-sm">
+            {/* Blue offset frame */}
+            <div className="absolute inset-0 bg-[#3B7DE8] border-[1.5px] border-black rounded-[16px] transform translate-x-[-8px] translate-y-[8px]" />
+            
+            {/* Main card */}
+            <div className="relative bg-white border-[1.5px] border-black rounded-[16px] overflow-hidden flex flex-col">
+              {/* Window Chrome */}
+              <div className="h-8 border-b-[1.5px] border-black bg-gray-50 flex items-center justify-between px-3">
+                <div className="flex gap-2 text-black">
+                  <Minus className="w-4 h-4" />
+                  <Square className="w-4 h-4" />
+                  <X className="w-4 h-4" />
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="p-8 flex flex-col items-center text-center text-black">
+                <motion.svg 
+                  className="w-16 h-16 text-green-500 mb-6" 
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}
+                >
+                  <motion.path 
+                    initial={{ pathLength: 0 }} 
+                    animate={{ pathLength: 1 }} 
+                    transition={{ duration: 0.6, ease: "easeOut" }}
+                    strokeLinecap="round" strokeLinejoin="round" 
+                    d="M5 13l4 4L19 7" 
                   />
-                  <button
-                    onClick={() => {
-                      if (manualVpa.trim()) {
-                        handleScanSuccess(manualVpa.trim());
-                        setShowManualInput(false);
-                        setManualVpa("");
-                      }
-                    }}
-                    className="btn-accent px-4 py-3 rounded-[12px]"
-                  >
-                    →
+                </motion.svg>
+
+                <h2 className="font-mono font-bold text-[20px] mb-2">Payment complete</h2>
+                <p className="text-[16px] mb-6">₹{(Number(amountPaise)/100).toFixed(2)} paid to {scannedMerchantName}</p>
+
+                <div className="w-full bg-[#C5D483] border-[1.5px] border-black rounded-[12px] p-4 mb-6">
+                  <div className="font-bold text-[16px]">⭐ +{quote?.starReward || "25"} STAR Earned</div>
+                  <div className="text-[12px]">Added to your wallet</div>
+                </div>
+
+                <div className="w-full bg-gray-50 border-[1.5px] border-gray-200 rounded-[8px] p-3 flex flex-col items-start mb-8">
+                  <div className="text-[10px] text-gray-500 uppercase font-bold mb-1">Transaction Hash</div>
+                  <div className="flex justify-between items-center w-full">
+                    <span className="font-mono text-[13px] truncate mr-2">{transactionId || "abc...xyz"}</span>
+                    <div className="flex gap-2">
+                      <Copy className="w-4 h-4 text-gray-500" />
+                      <ExternalLink className="w-4 h-4 text-gray-500" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 w-full">
+                  <button onClick={() => router.push('/dashboard')} className="flex-1 py-3 rounded-[12px] border-[1.5px] border-black font-bold hover:bg-gray-50">
+                    DONE
+                  </button>
+                  <button onClick={() => setStep('SCAN')} className="flex-1 py-3 rounded-[12px] bg-black text-white font-bold border-[1.5px] border-black hover:bg-black/80">
+                    PAY AGAIN →
                   </button>
                 </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-
-        {/* STEP 2: QUOTE & CONFIRM */}
-        {(step === "QUOTE" || step === "CONFIRM") && (
-          <motion.div key="quote" variants={slideVariants} initial="enter" animate="center" exit="exit" className="w-full">
-            <div className="border-[1.5px] border-ink rounded-[20px] bg-white overflow-hidden">
-              {/* Merchant header */}
-              <div className="p-4 border-b border-ink flex items-center gap-3">
-                <button onClick={() => setStep("SCAN")} className="w-8 h-8 rounded-full border-[1.5px] border-ink flex items-center justify-center hover:bg-ink hover:text-white transition-colors">
-                  <ArrowLeft className="h-4 w-4" />
-                </button>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full border-[1.5px] border-ink flex items-center justify-center">
-                    <span className="font-[family-name:var(--font-ibm-plex-mono)] font-bold text-sm">
-                      {scannedMerchantName ? scannedMerchantName.slice(0, 2).toUpperCase() : "MP"}
-                    </span>
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-bold leading-tight font-[family-name:var(--font-ibm-plex-mono)] truncate max-w-[180px]">
-                      {scannedMerchantName || "Merchant"}
-                    </h2>
-                    <span className="text-[11px] border-[1.5px] border-ink rounded-[50px] px-2 py-0.5 font-[family-name:var(--font-ibm-plex-mono)]">QR Verified</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 space-y-6">
-                {/* Amount Input */}
-                <div className="text-center">
-                  <p className="text-xs text-muted uppercase tracking-wider font-[family-name:var(--font-ibm-plex-mono)] mb-2">Amount (INR)</p>
-                  <div className="flex items-center justify-center gap-1">
-                    <span className="text-3xl font-bold font-[family-name:var(--font-ibm-plex-mono)] text-ink">₹</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      value={(Number(amountPaise) / 100).toString()}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        if (!isNaN(val) && val >= 0) {
-                          setAmountPaise((val * 100).toFixed(0));
-                        } else {
-                          setAmountPaise("0");
-                        }
-                      }}
-                      className="text-5xl font-bold font-[family-name:var(--font-ibm-plex-mono)] text-ink text-center bg-transparent border-b border-dashed border-ink/35 focus:border-ink focus:outline-none w-44"
-                    />
-                  </div>
-                </div>
-
-                {/* Asset selection pills */}
-                <div className="flex justify-center gap-2">
-                  {(["USDC", "XLM"] as const).map((asset) => (
-                    <button
-                      key={asset}
-                      onClick={() => { setSelectedAsset(asset); if (step !== "CONFIRM") setStep("CONFIRM"); }}
-                      className={`px-4 py-2 rounded-[50px] border-[1.5px] border-ink text-sm font-semibold font-[family-name:var(--font-ibm-plex-mono)] transition-colors ${
-                        selectedAsset === asset 
-                          ? "bg-ink text-white" 
-                          : "bg-transparent text-ink hover:bg-ink/5"
-                      }`}
-                    >
-                      {asset}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Quote breakdown */}
-                <div className="border-[1.5px] border-ink rounded-[16px] p-4 space-y-3 text-sm">
-                  <div className="flex justify-between text-muted">
-                    <span>You Pay</span>
-                    <span className="text-ink font-[family-name:var(--font-ibm-plex-mono)] font-semibold">
-                      {quoteLoading ? <Skeleton className="h-4 w-16 inline-block" /> : `${quote?.usdcAmount || "2.40"} ${selectedAsset}`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-muted">
-                    <span>Exchange Rate</span>
-                    <span className="text-ink font-[family-name:var(--font-ibm-plex-mono)]">
-                      {quoteLoading ? <Skeleton className="h-4 w-20 inline-block" /> : `1 ${selectedAsset} = ${(Number(amountPaise) / 100 / (quote?.usdcAmount || 2.40)).toFixed(2)} INR`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-muted">
-                    <span>Network Fee</span>
-                    <span className="text-ink font-[family-name:var(--font-ibm-plex-mono)]">~0.00001 XLM</span>
-                  </div>
-                  <div className="border-t border-ink pt-3 flex justify-between items-center">
-                    <span className="flex items-center gap-2 font-semibold text-ink">
-                      <Star className="h-4 w-4" /> STAR Rewards
-                    </span>
-                    <span className="bg-lime border-[1.5px] border-ink rounded-[50px] px-3 py-1 font-bold font-[family-name:var(--font-ibm-plex-mono)] text-ink text-sm">
-                      +{quoteLoading ? "..." : quote?.starReward || "0"} ⭐ STAR
-                    </span>
-                  </div>
-                </div>
-
-                {/* CTA */}
-                <button 
-                  onClick={() => createTxMutation.mutate()}
-                  disabled={createTxMutation.isPending || Number(amountPaise) <= 0}
-                  className="btn-accent w-full !py-4 !text-base disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {createTxMutation.isPending ? "PROCESSING..." : "CONFIRM PAYMENT →"}
-                </button>
               </div>
             </div>
-          </motion.div>
-        )}
-
-        {/* STEP 3: ASSET SELECTION */}
-        {step === "ASSET_SELECTION" && (
-          <motion.div key="assets" variants={slideVariants} initial="enter" animate="center" exit="exit" className="w-full">
-            <div className="border-[1.5px] border-ink rounded-[20px] bg-white overflow-hidden">
-              <div className="p-4 border-b border-ink flex items-center gap-3">
-                <button onClick={() => setStep("QUOTE")} className="w-8 h-8 rounded-full border-[1.5px] border-ink flex items-center justify-center hover:bg-ink hover:text-white transition-colors">
-                  <ArrowLeft className="h-4 w-4" />
-                </button>
-                <h2 className="text-lg font-bold font-[family-name:var(--font-ibm-plex-mono)]">Select Asset</h2>
-              </div>
-              <div className="p-4 space-y-2">
-                {(["USDC", "XLM"] as const).map((asset) => (
-                  <div 
-                    key={asset} 
-                    onClick={() => handleAssetSelect(asset)}
-                    className={`flex items-center justify-between p-4 rounded-[16px] cursor-pointer transition-colors border-[1.5px] ${
-                      selectedAsset === asset 
-                        ? "border-ink bg-ink text-white" 
-                        : "border-ink bg-white hover:bg-surface"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`h-10 w-10 rounded-full border-[1.5px] flex items-center justify-center font-[family-name:var(--font-ibm-plex-mono)] font-bold ${
-                        selectedAsset === asset ? "border-white text-white" : "border-ink text-ink"
-                      }`}>
-                        {asset[0]}
-                      </div>
-                      <div>
-                        <p className="font-bold font-[family-name:var(--font-ibm-plex-mono)]">{asset}</p>
-                        <p className={`text-xs ${selectedAsset === asset ? "text-white/60" : "text-muted"}`}>
-                          Available: {asset === "USDC" ? (walletBalances?.usdc || "0") : (walletBalances?.xlm || "0")}
-                        </p>
-                      </div>
-                    </div>
-                    {selectedAsset === asset && <Check className="h-5 w-5" />}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* STEP 4: PROCESSING */}
-        {step === "PROCESSING" && (
-          <motion.div key="processing" variants={slideVariants} initial="enter" animate="center" exit="exit" className="w-full text-center">
-            <div className="flex flex-col items-center gap-6">
-              <div className="spinner-border !w-20 !h-20 !border-[2px]" />
-              <div>
-                <h2 className="text-2xl font-bold mb-2 font-[family-name:var(--font-ibm-plex-mono)] text-ink">Processing Payment</h2>
-                <p className="text-muted">Routing through the Stellar network...</p>
-              </div>
-              {/* Progress steps */}
-              <div className="flex gap-2">
-                {["Signing", "Broadcasting", "Confirming"].map((label, i) => (
-                  <span key={label} className={`px-3 py-1.5 rounded-[50px] border-[1.5px] border-ink text-xs font-semibold font-[family-name:var(--font-ibm-plex-mono)] ${
-                    i === 0 ? "bg-lime text-ink" : "bg-transparent text-muted"
-                  }`}>
-                    {label}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* STEP 5: SUCCESS */}
-        {(step === "SUCCESS" || step === "REWARD") && (
-          <motion.div key="success" variants={slideVariants} initial="enter" animate="center" exit="exit" className="w-full">
-            <PaymentSuccess 
-              amount={(Number(amountPaise) / 100).toString()} 
-              currency="INR" 
-              merchantName={scannedMerchantName || "Chai Point"} 
-              onDone={() => router.push("/dashboard")}
-              starEarned={quoteLoading ? 0 : Number(quote?.starReward || 0)}
-            />
-          </motion.div>
-        )}
-
-      </AnimatePresence>
-    </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

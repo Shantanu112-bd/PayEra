@@ -18,13 +18,13 @@ function SectionTag({ label }: { label: string }) {
   );
 }
 
-const DEMO_MERCHANT_ID = "11111111-1111-1111-1111-111111111111";
+const DEFAULT_MERCHANT_ID = "11111111-1111-1111-1111-111111111111";
 
 export default function AnalyticsPage() {
   const [period, setPeriod] = React.useState("30d");
   const { data: analytics, isLoading } = useQuery({
-    queryKey: ["merchant-analytics", DEMO_MERCHANT_ID, period],
-    queryFn: () => cryptoPaySdk.analytics.getDashboardMetrics(DEMO_MERCHANT_ID),
+    queryKey: ["merchant-analytics", DEFAULT_MERCHANT_ID, period],
+    queryFn: () => cryptoPaySdk.analytics.getDashboardMetrics(DEFAULT_MERCHANT_ID),
   });
 
   return (

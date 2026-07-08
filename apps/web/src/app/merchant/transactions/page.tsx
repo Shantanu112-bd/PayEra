@@ -10,12 +10,12 @@ import {
 } from "@cryptopay/ui";
 import { Search, Download, Filter } from "lucide-react";
 
-const DEMO_MERCHANT_ID = "11111111-1111-1111-1111-111111111111";
+const DEFAULT_MERCHANT_ID = "11111111-1111-1111-1111-111111111111";
 
 export default function MerchantTransactionsPage() {
   const { data: transactions, isLoading } = useQuery({
-    queryKey: ["merchant-transactions-all", DEMO_MERCHANT_ID],
-    queryFn: () => cryptoPaySdk.merchants.getMerchantTransactions(DEMO_MERCHANT_ID, { limit: 20 }),
+    queryKey: ["merchant-transactions-all", DEFAULT_MERCHANT_ID],
+    queryFn: () => cryptoPaySdk.merchants.getMerchantTransactions(DEFAULT_MERCHANT_ID, { limit: 20 }),
   });
 
   return (
