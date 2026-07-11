@@ -23,7 +23,7 @@ status="live"
 
 [[CURRENCIES]]
 code="STAR"
-issuer="GA6MPSEDZWDYVFN2CLITDXSM2WI545AQATWRPJAA4QKBJKHSLUI5JAE6"
+issuer="CBNSF6EKROWALOG7DCOE5URA4KH27ONY2ESPPVT2JRKXSDU5MZHWNNKP"
 display_decimals=0
 name="STAR Reward Token"
 description="Payra loyalty reward token"
