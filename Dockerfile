@@ -4,6 +4,7 @@ WORKDIR /app
 # Copy root workspace config
 COPY package*.json ./
 COPY turbo.json ./
+COPY tools ./tools
 
 # Copy all workspace package.json files
 COPY apps/api/package*.json ./apps/api/
@@ -21,10 +22,7 @@ COPY packages ./packages
 # Generate Prisma client
 RUN cd apps/api && npx prisma generate --schema=prisma/schema.prisma
 
-# Build packages in order
-RUN npx turbo run build --filter=@cryptopay/types
-RUN npx turbo run build --filter=@cryptopay/sdk
-RUN npx turbo run build --filter=@cryptopay/api
+RUN npx turbo run build --filter=@cryptopay/api...
 
 # Production image
 FROM node:20-alpine AS production
