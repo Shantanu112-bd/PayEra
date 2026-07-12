@@ -1,0 +1,11 @@
+node_modules
+.next
+dist
+.git
+*.md
+apps/web
+apps/admin
+contracts
+.env
+.env.local
+*.env
