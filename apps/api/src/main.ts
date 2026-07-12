@@ -19,6 +19,7 @@ async function bootstrap() {
       'http://localhost:3001',
       'https://start-up-track-web.vercel.app',
       'https://start-up-track.onrender.com',
+      /\.vercel\.app$/,
       ...(process.env.ALLOWED_ORIGINS
         ? process.env.ALLOWED_ORIGINS.split(',')
         : []),
