@@ -269,8 +269,8 @@ export default function ContractsPage() {
         <div className="rounded-xl border border-white/10 bg-black/30 overflow-hidden divide-y divide-white/5">
           {rewardsLoading ? (
             Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-none" />)
-          ) : (recentRewards as any)?.items && (recentRewards as any).items.length > 0 ? (
-            (recentRewards as any).items.map((reward: any) => (
+          ) : (recentRewards as any)?.data && (recentRewards as any).data.length > 0 ? (
+            (recentRewards as any).data.map((reward: any) => (
               <div key={reward.id} className="flex items-center justify-between p-4 hover:bg-white/5 transition-colors">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">

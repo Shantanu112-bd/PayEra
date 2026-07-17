@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarService } from '../stellar/stellar.service';
+import { SorobanService } from '../stellar';
+import { SettlementService } from '../settlement/settlement.service';
 import { RewardStatus, TransactionStatus } from '../generated/prisma';
 
 @Injectable()
@@ -11,10 +13,12 @@ export class TransactionProcessorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stellarService: StellarService,
+    private readonly sorobanService: SorobanService,
+    private readonly settlementService: SettlementService,
   ) {}
 
   @Cron(CronExpression.EVERY_5_SECONDS)
-  async handlePendingTransactions() {
+  async handlePendingTransactions(): Promise<void> {
     // Atomically claim one transaction at a time by updating status first
     // Only process if we successfully moved it from CREATED to AUTHORIZED
     const claimed = await this.prisma.transaction.updateMany({
@@ -79,12 +83,62 @@ export class TransactionProcessorService {
     this.logger.log(`Processing transaction ${tx.id} with status ${tx.status}`);
 
     try {
-      if (tx.status === TransactionStatus.CREATED) {
-        await this.updateStatus(tx.id, TransactionStatus.AUTHORIZED);
+      // Step 1: Create payment on PaymentEngine contract
+      await this.updateStatus(tx.id, TransactionStatus.AUTHORIZED);
+
+      const reward = await this.prisma.reward.findFirst({
+        where: { transactionId: tx.id, reason: 'SPEND' },
+      });
+
+      if (!reward) {
+        throw new Error('No spend reward found for transaction');
       }
 
+      const qrCode = tx.merchantQrCodeId
+        ? await this.prisma.merchantQrCode.findUnique({ where: { id: tx.merchantQrCodeId } })
+        : null;
+
+      const qrHash = qrCode?.qrPayloadHash ?? tx.qrPayloadHash ?? '0'.repeat(64);
+
+      // Get payer wallet address
+      const wallet = tx.walletId
+        ? await this.prisma.wallet.findUnique({ where: { id: tx.walletId } })
+        : null;
+      const payerWallet = wallet?.address ?? '';
+
+      await this.sorobanService.createPayment({
+        paymentId: tx.id,
+        payer: payerWallet,
+        merchantId: tx.merchantId,
+        asset: tx.assetIn as 'XLM' | 'USDC' | 'ETH' | 'BTC' | 'SOL',
+        amountInPaise: tx.amountInPaise,
+        qrHash,
+        rewardId: reward.id,
+      });
+
+      await this.updateStatus(tx.id, TransactionStatus.QUOTED);
+
+      // Step 2: Quote payment on PaymentEngine
+      const quoteRate = Number(tx.quoteRateInrPerAsset);
+      const usdcRate = await this.getUsdcRate();
+      const usdcAmount = BigInt(Math.round((Number(tx.amountInPaise) / 100) / usdcRate * 1_000_000)); // USDC has 6 decimals
+      const assetAmount = BigInt(Math.round((Number(tx.amountInPaise) / 100) / quoteRate * 10_000_000)); // asset has 7 decimals
+      const networkFeePaise = BigInt(0);
+
+      await this.sorobanService.quotePayment({
+        paymentId: tx.id,
+        assetAmount,
+        usdcAmount,
+        networkFeePaise,
+      });
+
+      await this.updateStatus(tx.id, TransactionStatus.CONVERTING);
+
+      // Step 3: Mark converted
+      await this.sorobanService.markConverted(tx.id);
       await this.updateStatus(tx.id, TransactionStatus.ROUTING_STELLAR);
 
+      // Step 4: Submit real Stellar payment
       const { hash, ledger } = await this.stellarService.submitPayment({
         transactionPublicId: tx.publicId,
         assetCode: tx.assetIn,
@@ -96,17 +150,93 @@ export class TransactionProcessorService {
         data: {
           status: TransactionStatus.SETTLING,
           stellarTransactionHash: hash,
+          stellarLedger: BigInt(ledger),
         },
       });
       await this.logEvent(tx.id, TransactionStatus.SETTLING);
 
+      // Step 5: Mark settled on PaymentEngine
+      await this.sorobanService.markSettled(tx.id);
+      await this.updateStatus(tx.id, TransactionStatus.SETTLING);
+
+      // Step 5.5: Settle via UPI payout to merchant (Decentro integration)
+      const merchant = await this.prisma.merchant.findUnique({
+        where: { id: tx.merchantId },
+        select: { defaultUpiVpa: true, displayName: true },
+      });
+
+      if (merchant?.defaultUpiVpa) {
+        this.logger.log(`Initiating UPI payout to merchant ${tx.merchantId} (${merchant.defaultUpiVpa})`);
+        const settlementResult = await this.settlementService.initiateUpiPayout({
+          referenceId: `SETTLE_${tx.id}`,
+          amountPaise: tx.amountInPaise,
+          merchantUpiVpa: merchant.defaultUpiVpa,
+          merchantName: merchant.displayName,
+          purpose: `Payment settlement for transaction ${tx.publicId}`,
+        });
+
+        await this.prisma.settlementInstruction.updateMany({
+          where: { transactionId: tx.id },
+          data: {
+            status: 'SENT',
+            settlementReference: settlementResult.transactionId,
+            metadata: { settlementStatus: settlementResult.status },
+          },
+        });
+
+        // Poll for settlement completion
+        let settlementStatus = settlementResult.status;
+        let attempts = 0;
+        const maxAttempts = 30; // 5 minutes max
+        let finalUtrNumber: string | undefined;
+        while (settlementStatus === 'PROCESSING' || settlementStatus === 'PENDING') {
+          await new Promise(resolve => setTimeout(resolve, 10000)); // 10s polling
+          const statusResult = await this.settlementService.checkPayoutStatus(settlementResult.transactionId);
+          settlementStatus = statusResult.status;
+          finalUtrNumber = statusResult.utrNumber;
+          attempts++;
+          if (attempts >= maxAttempts) {
+            this.logger.warn(`Settlement ${settlementResult.transactionId} timed out after ${maxAttempts} attempts`);
+            break;
+          }
+        }
+
+        if (settlementStatus === 'SUCCESS' || settlementStatus === 'COMPLETED') {
+          await this.prisma.settlementInstruction.updateMany({
+            where: { transactionId: tx.id },
+            data: {
+              status: 'CONFIRMED',
+              confirmedAt: new Date(),
+              mockReference: settlementResult.transactionId,
+              metadata: { utrNumber: finalUtrNumber, settlementStatus },
+            },
+          });
+          this.logger.log(`UPI settlement confirmed: ${settlementResult.transactionId}, UTR: ${finalUtrNumber}`);
+        } else {
+          this.logger.warn(`UPI settlement status: ${settlementStatus} for ${settlementResult.transactionId}`);
+        }
+      } else {
+        this.logger.warn(`Merchant ${tx.merchantId} has no UPI VPA, skipping UPI settlement`);
+      }
+
+      // Step 6: Issue STAR reward via RewardEngine (called by PaymentEngine.issue_reward)
+      const rewardResult = await this.sorobanService.issueReward(tx.id);
+
+      // Update reward record with on-chain mint hash
       await this.prisma.reward.updateMany({
         where: { transactionId: tx.id },
         data: {
           status: RewardStatus.MINTED,
-          stellarMintHash: hash,
+          stellarMintHash: rewardResult.hash,
+          mintedAt: new Date(),
         },
       });
+
+      await this.updateStatus(tx.id, TransactionStatus.REWARDING);
+
+      // Step 7: Complete payment on PaymentEngine
+      await this.sorobanService.completePayment(tx.id);
+      await this.updateStatus(tx.id, TransactionStatus.COMPLETED);
 
       await this.prisma.settlementInstruction.updateMany({
         where: { transactionId: tx.id },
@@ -116,8 +246,6 @@ export class TransactionProcessorService {
           mockReference: hash,
         },
       });
-
-      await this.updateStatus(tx.id, TransactionStatus.COMPLETED);
 
       await this.prisma.adminLog.create({
         data: {
@@ -129,19 +257,30 @@ export class TransactionProcessorService {
             stellarHash: hash,
             ledger,
             processorAttempt: attempt,
-          } as any,
+            starAmount: rewardResult.starAmount.toString(),
+          },
         },
       })
-      
-      this.logger.log(`Transaction ${tx.id} completed successfully. Stellar Hash: ${hash}`);
+
+      this.logger.log(`Transaction ${tx.id} completed successfully. Stellar Hash: ${hash}, STAR earned: ${rewardResult.starAmount}`);
 
     } catch (error: any) {
       await this.updateStatus(
-        tx.id, 
-        TransactionStatus.FAILED, 
-        'STELLAR_ERROR', 
+        tx.id,
+        TransactionStatus.FAILED,
+        'STELLAR_ERROR',
         error.message || 'Unknown error during Stellar routing'
       );
+    }
+  }
+
+  private async getUsdcRate(): Promise<number> {
+    try {
+      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=usd-coin&vs_currencies=inr');
+      const data = await res.json() as Record<string, { inr: number }>;
+      return data['usd-coin']?.inr || 83;
+    } catch {
+      return 83;
     }
   }
 

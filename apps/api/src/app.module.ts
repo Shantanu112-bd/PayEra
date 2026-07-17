@@ -5,6 +5,7 @@ import { LoggerModule } from 'nestjs-pino';
 import * as crypto from 'crypto';
 
 import { AdminModule } from "./admin/admin.module";
+import { AmlModule } from "./aml/aml.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
 import { AuthModule } from "./auth/auth.module";
 import { CampaignsModule } from "./campaigns/campaigns.module";
@@ -56,6 +57,7 @@ import { RampsModule } from './ramps/ramps.module';
     TransactionProcessorModule,
     CircuitBreakerModule,
     RampsModule,
+    AmlModule,
   ],
   controllers: [
     HealthController,

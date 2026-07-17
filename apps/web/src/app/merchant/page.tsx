@@ -150,8 +150,12 @@ export default function MerchantDashboardPage() {
             <div className="p-4 space-y-3">
               {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-[12px]" />)}
             </div>
+          ) : (transactions as any)?.data?.length === 0 ? (
+            <div className="text-center p-6 border-[1.5px] border-ink/10 rounded-[16px] bg-white text-muted font-mono text-sm">
+              No recent transactions
+            </div>
           ) : (
-            ((transactions as any)?.items ?? []).map((tx: any) => (
+            ((transactions as any)?.data ?? []).map((tx: any) => (
               <TransactionCard key={tx.id} transaction={tx} isOutbound={false} />
             ))
           )}

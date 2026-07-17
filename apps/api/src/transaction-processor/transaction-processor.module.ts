@@ -1,9 +1,11 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TransactionProcessorService } from './transaction-processor.service';
 import { StellarModule } from '../stellar/stellar.module';
+import { SettlementModule } from '../settlement/settlement.module';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
-  imports: [StellarModule],
+  imports: [forwardRef(() => StellarModule), SettlementModule, PrismaModule],
   providers: [TransactionProcessorService],
 })
 export class TransactionProcessorModule {}

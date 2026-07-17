@@ -95,6 +95,7 @@ enum TransactionType {
 
 enum PaymentRail {
   UPI_MOCK
+  DECENTRO
 }
 
 enum SettlementLayer {
@@ -400,23 +401,24 @@ model TransactionEvent {
 }
 
 model SettlementInstruction {
-  id            String           @id @default(uuid()) @db.Uuid
-  transactionId String           @unique @map("transaction_id") @db.Uuid
-  merchantId    String           @map("merchant_id") @db.Uuid
-  amountPaise   BigInt           @map("amount_paise")
-  currency      AssetCode        @default(INR)
-  rail          PaymentRail      @default(UPI_MOCK)
-  status        SettlementStatus @default(PENDING)
-  mockReference String?          @unique @map("mock_reference") @db.VarChar(80)
-  attemptedAt   DateTime?        @map("attempted_at") @db.Timestamptz(6)
-  confirmedAt   DateTime?        @map("confirmed_at") @db.Timestamptz(6)
-  failureReason String?          @map("failure_reason") @db.Text
-  metadata      Json             @default("{}")
-  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                String           @id @default(uuid()) @db.Uuid
+  transactionId     String           @unique @map("transaction_id") @db.Uuid
+  merchantId        String           @map("merchant_id") @db.Uuid
+  amountPaise       BigInt           @map("amount_paise")
+  currency          AssetCode        @default(INR)
+  rail              PaymentRail      @default(UPI_MOCK)
+  status            SettlementStatus @default(PENDING)
+  settlementReference String?        @unique @map("settlement_reference") @db.VarChar(120)
+  mockReference     String?          @unique @map("mock_reference") @db.VarChar(80)
+  attemptedAt       DateTime?        @map("attempted_at") @db.Timestamptz(6)
+  confirmedAt       DateTime?        @map("confirmed_at") @db.Timestamptz(6)
+  failureReason     String?          @map("failure_reason") @db.Text
+  metadata          Json             @default("{}")
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  merchant    Merchant    @relation(fields: [merchantId], references: [id], onDelete: Restrict)
-  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  merchant          Merchant         @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  transaction       Transaction      @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@index([merchantId, status, createdAt])
   @@index([status, createdAt])
