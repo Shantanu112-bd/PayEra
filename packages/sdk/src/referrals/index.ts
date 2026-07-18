@@ -14,6 +14,10 @@ export class ReferralsSdk {
     return this.client.post<Referral>("/referrals");
   }
 
+  async accept(data: { code: string }): Promise<void> {
+    return this.client.post<void>("/referrals/accept", data);
+  }
+
   async listReferrals(params?: { page?: number; limit?: number }): Promise<PaginationResponse<Referral>> {
     const searchParams = new URLSearchParams();
     if (params?.page) searchParams.set("page", params.page.toString());

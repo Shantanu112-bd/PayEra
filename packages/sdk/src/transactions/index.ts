@@ -42,4 +42,8 @@ export class TransactionsSdk {
     const queryStr = searchParams.toString();
     return this.client.get<PaginationResponse<Transaction>>(`/transactions${queryStr ? "?" + queryStr : ""}`);
   }
+
+  async getTaxReport(year: string): Promise<any> {
+    return this.client.get<any>(`/transactions/me/tax-report?year=${year}`);
+  }
 }

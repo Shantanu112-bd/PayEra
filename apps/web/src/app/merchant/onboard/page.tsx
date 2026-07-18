@@ -4,7 +4,8 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { CheckCircle2, ChevronRight, Store, User, CreditCard } from "lucide-react";
+import { CheckCircle2, ChevronRight, Store, User, CreditCard, ShieldCheck } from "lucide-react";
+import { KycOnboarding } from "@/components/kyc/KycOnboarding";
 
 export default function MerchantOnboardingWizard() {
   const router = useRouter();
@@ -61,6 +62,7 @@ export default function MerchantOnboardingWizard() {
     { id: 1, name: "Business Profile", icon: Store },
     { id: 2, name: "Owner Identity", icon: User },
     { id: 3, name: "Settlement Info", icon: CreditCard },
+    { id: 4, name: "KYC Verification", icon: ShieldCheck },
   ];
 
   return (
@@ -70,7 +72,7 @@ export default function MerchantOnboardingWizard() {
         <p className="text-gray-500 mt-2">Start accepting instant crypto payments settled in fiat.</p>
       </div>
 
-      {step < 4 && (
+      {step < 5 && (
         <div className="flex items-center justify-between mb-8">
           {steps.map((s, idx) => (
             <React.Fragment key={s.id}>
@@ -304,7 +306,7 @@ export default function MerchantOnboardingWizard() {
             </div>
             
             {submitMutation.isError && (
-              <div className="p-3 bg-red-50 text-red-700 rounded-md text-sm">
+              <div className="p-3 bg-red-50 text-red-700 rounded-md text-sm mt-4">
                 {(submitMutation.error as Error).message || "An error occurred while submitting."}
               </div>
             )}
@@ -312,6 +314,33 @@ export default function MerchantOnboardingWizard() {
         )}
 
         {step === 4 && (
+          <div className="p-8 space-y-6">
+            <div>
+              <h2 className="text-xl font-bold">KYC Verification</h2>
+              <p className="text-sm text-gray-500 mt-1">Complete your identity verification to start accepting payments.</p>
+            </div>
+            
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+              <KycOnboarding 
+                onClose={() => {
+                  // After KYC closes, move to success
+                  setStep(5);
+                }} 
+              />
+            </div>
+            
+            <div className="flex justify-between pt-4">
+              <button 
+                onClick={() => setStep(5)}
+                className="px-6 py-2 border border-gray-200 text-gray-500 rounded-lg font-medium hover:bg-gray-50"
+              >
+                Skip for now
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 5 && (
           <div className="p-12 text-center space-y-6">
             <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-8 h-8" />

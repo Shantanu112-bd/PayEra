@@ -18,7 +18,7 @@ export class CampaignsSdk {
     return this.client.get<Campaign>(`/campaigns/${campaignId}`);
   }
 
-  async joinCampaign(campaignId: string, merchantId: string): Promise<void> {
+  async addMerchant(campaignId: string, merchantId: string): Promise<void> {
     return this.client.post<void>(`/campaigns/${campaignId}/merchants/${merchantId}`);
   }
 

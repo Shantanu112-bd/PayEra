@@ -182,6 +182,37 @@ export function TransactionStatusDisplay({ transactionId, className = "" }: Tran
           <div className="text-[12px] text-red-700">{transaction.failureMessage}</div>
         </div>
       )}
+      {/* Event Timeline */}
+      {transaction.events && transaction.events.length > 0 && (
+        <div className="mt-4 pt-4 border-t-[1.5px] border-gray-200">
+          <h3 className="font-bold text-sm text-black mb-3">Event Timeline</h3>
+          <div className="space-y-4 relative before:absolute before:inset-0 before:ml-[11px] before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-gray-300 before:to-transparent">
+            {transaction.events.map((event: any, i: number) => (
+              <div key={event.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                <div className="flex items-center justify-center w-6 h-6 rounded-full border border-white bg-slate-300 text-slate-500 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
+                  <div className="w-2 h-2 rounded-full bg-slate-500" />
+                </div>
+                <div className="w-[calc(100%-2rem)] md:w-[calc(50%-1.5rem)] p-3 rounded-[8px] border-[1.5px] border-gray-200 bg-white shadow-sm">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-slate-900 text-xs">{event.eventType}</span>
+                    <span className="font-mono text-slate-500 text-[10px]">
+                      {new Date(event.createdAt).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  {event.status && (
+                    <div className="text-xs text-slate-500 font-mono">Status: {event.status}</div>
+                  )}
+                  {event.payload && (
+                    <pre className="mt-2 text-[10px] text-gray-500 bg-gray-50 p-2 rounded max-h-24 overflow-y-auto">
+                      {JSON.stringify(event.payload, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

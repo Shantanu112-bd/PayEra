@@ -4,9 +4,89 @@ import * as React from "react";
 import { ArrowLeft, Play, Pause, CheckCircle } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { Skeleton, MetricCard, ChartCard, LineChart } from "@cryptopay/ui";
+import { Skeleton, MetricCard, ChartCard, LineChart, Button } from "@cryptopay/ui";
+import { Loader2 } from "lucide-react";
+
+function MerchantLinker({ campaignId }: { campaignId: string }) {
+  const [selectedMerchant, setSelectedMerchant] = React.useState("");
+
+  const { data: merchantsRes, isLoading: merchantsLoading } = useQuery({
+    queryKey: ["merchants"],
+    queryFn: () => cryptoPaySdk.merchants.listMerchants(),
+  });
+
+  const { data: campaign } = useQuery({
+    queryKey: ["campaign", campaignId],
+    queryFn: () => cryptoPaySdk.campaigns.getCampaign(campaignId),
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: (merchantId: string) => cryptoPaySdk.campaigns.addMerchant(campaignId, merchantId),
+    onSuccess: () => {
+      setSelectedMerchant("");
+      alert("Merchant linked successfully!");
+    },
+    onError: (err: any) => {
+      alert("Failed to link merchant.");
+    }
+  });
+
+  const merchants = merchantsRes?.data || [];
+  const linkedMerchants = campaign?.merchants || [];
+
+  return (
+    <div className="bg-[#111111] border border-white/10 rounded-xl p-6 space-y-6 mt-8">
+      <div>
+        <h3 className="font-semibold text-lg text-white">Linked Merchants</h3>
+        <p className="text-muted-foreground text-sm">Merchants participating in this campaign.</p>
+      </div>
+
+      <div className="flex gap-4">
+        <select 
+          value={selectedMerchant}
+          onChange={(e) => setSelectedMerchant(e.target.value)}
+          className="flex-1 bg-black border border-white/10 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        >
+          <option value="">Select a merchant to link...</option>
+          {merchants.map((m: any) => (
+            <option key={m.id} value={m.id} disabled={linkedMerchants.some((lm: any) => lm.id === m.id)}>
+              {m.name || m.id} {linkedMerchants.some((lm: any) => lm.id === m.id) ? "(Already Linked)" : ""}
+            </option>
+          ))}
+        </select>
+        <button 
+          onClick={() => linkMutation.mutate(selectedMerchant)}
+          disabled={!selectedMerchant || linkMutation.isPending}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+        >
+          {linkMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Link Merchant"}
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {linkedMerchants.length === 0 ? (
+          <div className="text-sm text-muted-foreground bg-white/5 rounded-md p-4 text-center">
+            No merchants linked to this campaign yet.
+          </div>
+        ) : (
+          linkedMerchants.map((m: any) => (
+            <div key={m.id} className="bg-white/5 border border-white/10 rounded-md p-3 flex justify-between items-center">
+              <div>
+                <div className="font-medium text-white">{m.name || "Unnamed Merchant"}</div>
+                <div className="text-xs text-muted-foreground font-mono">{m.id}</div>
+              </div>
+              <div className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-xs rounded font-bold border border-emerald-500/20">
+                LINKED
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function CampaignDetailPage() {
   const params = useParams();
@@ -84,6 +164,9 @@ export default function CampaignDetailPage() {
           <button onClick={() => handleAction('complete')} className="flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-white/10 bg-black hover:bg-white/5 text-white h-9 px-4 py-2">
             <CheckCircle className="mr-2 h-4 w-4" /> Mark Complete
           </button>
+          <Link href={`/merchant/campaigns/${id}/edit`} className="flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-white/10 bg-black hover:bg-white/5 text-white h-9 px-4 py-2">
+            Edit
+          </Link>
         </div>
       </div>
 
@@ -118,6 +201,8 @@ export default function CampaignDetailPage() {
           />
         )}
       </ChartCard>
+
+      <MerchantLinker campaignId={id} />
     </div>
   );
 }

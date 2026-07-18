@@ -25,6 +25,7 @@ export interface Campaign {
   startsAt: Date | string | null;
   endsAt: Date | string | null;
   metadata: any;
+  merchants?: any[];
   createdAt: Date | string;
   updatedAt: Date | string;
 }

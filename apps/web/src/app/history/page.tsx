@@ -101,16 +101,21 @@ export default function HistoryPage() {
           <SectionTag label="HISTORY" />
           <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-ibm-plex-mono)] text-ink">Transaction History</h1>
         </div>
-        <button
-          onClick={() => {
-            queryClient.invalidateQueries({ queryKey: ["transactions"] });
-          }}
-          disabled={isLoading}
-          className="flex items-center gap-2 px-4 py-2 border-[1.5px] border-ink rounded-full text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <Link href="/transactions/tax-report" className="px-4 py-2 border-[1.5px] border-ink rounded-full text-sm font-medium hover:bg-gray-50 transition-colors">
+            Tax Report
+          </Link>
+          <button
+            onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ["transactions"] });
+            }}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-4 py-2 border-[1.5px] border-ink rounded-full text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Filter Tabs */}
@@ -145,7 +150,7 @@ export default function HistoryPage() {
       ) : (
         <div className="space-y-3">
           {transactions.map((tx: any) => (
-            <Link key={tx.id} href={`/history?tx=${tx.id}`} className="block">
+            <Link key={tx.id} href={`/history/${tx.id}`} className="block">
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}

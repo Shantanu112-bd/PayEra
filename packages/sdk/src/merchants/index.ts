@@ -8,6 +8,10 @@ export class MerchantsSdk {
     return this.client.get<Merchant>(`/merchants/${merchantId}`);
   }
 
+  async listMerchants(): Promise<PaginationResponse<Merchant>> {
+    return this.client.get<PaginationResponse<Merchant>>(`/merchants`);
+  }
+
   async createMerchant(data: {
     legalName: string;
     displayName: string;
@@ -21,6 +25,14 @@ export class MerchantsSdk {
     metadata?: any;
   }): Promise<Merchant> {
     return this.client.post<Merchant>("/merchants", data);
+  }
+
+  async updateMerchant(merchantId: string, data: Partial<Merchant>): Promise<Merchant> {
+    return this.client.patch<Merchant>(`/merchants/${merchantId}`, data);
+  }
+
+  async createQrCode(merchantId: string, payload?: { amount?: string, storeId?: string }): Promise<any> {
+    return this.client.post<any>(`/merchants/${merchantId}/qrs`, payload || {});
   }
 
   async getMyMerchant(): Promise<Merchant> {

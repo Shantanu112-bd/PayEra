@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Copy, ExternalLink, ArrowDown, ArrowUp, Star, Zap } from "lucide-react";
+import { Plus, Copy, ExternalLink, ArrowDown, ArrowUp, Star, Zap, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
@@ -266,6 +266,18 @@ export default function WalletPage() {
             </div>
             <div className="font-bold text-sm text-ink">History</div>
             <div className="text-xs text-muted font-mono">All transactions</div>
+          </motion.div>
+        </Link>
+        <Link href="/wallet/manage" className="block">
+          <motion.div
+            whileTap={{ scale: 0.98 }}
+            className="bg-white border-[1.5px] border-ink rounded-[16px] p-4 text-center hover:border-[#C5D483] hover:bg-[#F5F2EC] transition-colors"
+          >
+            <div className="w-12 h-12 rounded-full bg-[#F5F2EC] flex items-center justify-center border-[1.5px] border-ink mx-auto mb-2">
+              <Wallet className="w-5 h-5 text-ink" />
+            </div>
+            <div className="font-bold text-sm text-ink">Manage</div>
+            <div className="text-xs text-muted font-mono">Linked Wallets</div>
           </motion.div>
         </Link>
       </div>

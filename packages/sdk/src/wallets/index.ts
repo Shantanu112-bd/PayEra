@@ -12,6 +12,10 @@ export class WalletsSdk {
     return this.client.get<Wallet>(`/wallets/${walletId}`);
   }
 
+  async updateWallet(walletId: string, data: Partial<Wallet>): Promise<Wallet> {
+    return this.client.patch<Wallet>(`/wallets/${walletId}`, data);
+  }
+
   async listWallets(): Promise<PaginationResponse<Wallet>> {
     return this.client.get<PaginationResponse<Wallet>>("/wallets");
   }
