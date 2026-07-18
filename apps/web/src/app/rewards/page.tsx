@@ -21,12 +21,9 @@ function SectionTag({ label }: { label: string }) {
 }
 
 export default function RewardsPage() {
-  const { data: rewards, isLoading } = useQuery({
+  const { data: rewardsBalance, isLoading } = useQuery({
     queryKey: ["rewards"],
-    queryFn: async () => {
-      const balanceObj = await cryptoPaySdk.rewards.getRewards();
-      return { totalMinted: (balanceObj as any).mintedStar?.toString() || "0" };
-    },
+    queryFn: () => cryptoPaySdk.rewards.getRewards(),
   });
 
   // Use the seeded Demo User ID (matches store default)
@@ -67,11 +64,11 @@ export default function RewardsPage() {
       {/* Stats Card - Backend derived */}
       <div className="stats-card stats-card-3">
         <div className="stat-col">
-          <div className="stat-number !text-4xl">{rewards?.totalMinted || "0"}</div>
+          <div className="stat-number !text-4xl">{rewardsBalance?.mintedStar?.toString() || "0"}</div>
           <div className="stat-primary-label">Total STAR Minted</div>
         </div>
         <div className="stat-col">
-          <div className="stat-number !text-4xl">{(Number(rewards?.totalMinted || "0") * 0.14).toFixed(0)}</div>
+          <div className="stat-number !text-4xl">{rewardsBalance?.pendingStar?.toString() || "0"}</div>
           <div className="stat-primary-label">This Month</div>
         </div>
         <div className="stat-col">

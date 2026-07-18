@@ -45,7 +45,7 @@ export default function DashboardPage() {
 
   const xlmBalance = balances?.XLM || "0.00";
   const usdcBalance = balances?.USDC || "0.00";
-  const starBalance = rewards?.totalStarAmount || "0";
+  const starBalance = rewards?.mintedStar?.toString() || "0";
 
   return (
     <motion.div
