@@ -11,4 +11,16 @@ export class UsersSdk {
   async updateProfile(userId: string, data: Partial<User>): Promise<User> {
     return this.client.patch<User>(`/users/${userId}`, data);
   }
+
+  async activate(userId: string): Promise<void> {
+    return this.client.post(`/users/${userId}/activate`);
+  }
+
+  async suspend(userId: string): Promise<void> {
+    return this.client.post(`/users/${userId}/suspend`);
+  }
+
+  async softDelete(userId: string): Promise<void> {
+    return this.client.delete(`/users/${userId}`);
+  }
 }

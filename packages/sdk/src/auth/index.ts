@@ -4,8 +4,8 @@ import { ApiClient } from "../core/ApiClient";
 export class AuthSdk {
   constructor(private client: ApiClient) {}
 
-  async mockLogin(username: string): Promise<{ token: string; user: User }> {
-    return this.client.post<{ token: string; user: User }>("/auth/mock-login", { username });
+  async mockLogin(data: { email?: string; phoneE164?: string; displayName?: string; role?: string }): Promise<{ auth: { accessToken: string; refreshToken: string }; user: User }> {
+    return this.client.post<{ auth: { accessToken: string; refreshToken: string }; user: User }>("/auth/mock-login", data);
   }
 
   async walletChallenge(data: { address: string; network: string; provider: string }): Promise<{ message: string; nonce: string; expiresAt: string }> {
@@ -24,8 +24,7 @@ export class AuthSdk {
     // Implementing client-side logout cleanup could go here, or handled by the host app via token clearing.
   }
   
-  refreshToken(): Promise<{ token: string }> {
-    // Placeholder if a refresh endpoint is added later.
-    return this.client.post<{ token: string }>("/auth/refresh");
+  refreshToken(data: { refreshToken: string }): Promise<{ auth: { accessToken: string; refreshToken: string } }> {
+    return this.client.post<{ auth: { accessToken: string; refreshToken: string } }>("/auth/refresh", data);
   }
 }

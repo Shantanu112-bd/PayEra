@@ -8,6 +8,21 @@ export class MerchantsSdk {
     return this.client.get<Merchant>(`/merchants/${merchantId}`);
   }
 
+  async createMerchant(data: {
+    legalName: string;
+    displayName: string;
+    defaultUpiVpa?: string;
+    category?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    postalCode?: string;
+    gstin?: string;
+    metadata?: any;
+  }): Promise<Merchant> {
+    return this.client.post<Merchant>("/merchants", data);
+  }
+
   async getMyMerchant(): Promise<Merchant> {
     return this.client.get<Merchant>('/merchants/mine');
   }
