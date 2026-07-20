@@ -22,6 +22,7 @@ import { StellarModule } from './stellar/stellar.module';
 import { TransactionProcessorModule } from './transaction-processor/transaction-processor.module';
 import { CircuitBreakerModule } from './common/circuit-breaker/circuit-breaker.module';
 import { RampsModule } from './ramps/ramps.module';
+import { ZebpayModule } from './zebpay/zebpay.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { RampsModule } from './ramps/ramps.module';
     TransactionProcessorModule,
     CircuitBreakerModule,
     RampsModule,
+    ZebpayModule,
   ],
   controllers: [
     HealthController,

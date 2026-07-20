@@ -1,9 +1,15 @@
 import { Module } from '@nestjs/common';
-import { TransactionProcessorService } from './transaction-processor.service';
+import { ScheduleModule } from '@nestjs/schedule';
+import { PrismaModule } from '../prisma/prisma.module';
 import { StellarModule } from '../stellar/stellar.module';
+import { TransactionProcessorService } from './transaction-processor.service';
 
 @Module({
-  imports: [StellarModule],
+  imports: [
+    ScheduleModule,
+    PrismaModule,
+    StellarModule,
+  ],
   providers: [TransactionProcessorService],
 })
 export class TransactionProcessorModule {}

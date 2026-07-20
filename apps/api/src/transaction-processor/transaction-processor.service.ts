@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { StellarService } from '../stellar/stellar.service';
 import { RewardStatus, TransactionStatus } from '../generated/prisma';
+import { SorobanService } from '../stellar/soroban.service';
 
 @Injectable()
 export class TransactionProcessorService {
@@ -11,6 +12,7 @@ export class TransactionProcessorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stellarService: StellarService,
+    private readonly sorobanService: SorobanService,
   ) {}
 
   @Cron(CronExpression.EVERY_5_SECONDS)
@@ -100,13 +102,86 @@ export class TransactionProcessorService {
       });
       await this.logEvent(tx.id, TransactionStatus.SETTLING);
 
-      await this.prisma.reward.updateMany({
-        where: { transactionId: tx.id },
-        data: {
-          status: RewardStatus.MINTED,
-          stellarMintHash: hash,
+      // Fetch pending rewards with user wallet info
+      const pendingRewards = await this.prisma.reward.findMany({
+        where: {
+          transactionId: tx.id,
+          status: { in: ['PENDING'] },
         },
-      });
+        include: {
+          user: {
+            include: {
+              wallets: {
+                where: {
+                  isPrimary: true,
+                  status: 'ACTIVE',
+                },
+                take: 1,
+              },
+            },
+          },
+        },
+      })
+
+      for (const reward of pendingRewards) {
+        const walletAddress = reward.user?.wallets?.[0]?.address
+
+        if (walletAddress) {
+          try {
+            // Mint STAR tokens on-chain via Soroban
+            const mintResult = await this.sorobanService
+              .issueStarReward({
+                rewardId: reward.id,
+                userId: reward.userId,
+                userWalletAddress: walletAddress,
+                starAmount: BigInt(reward.starAmount),
+              })
+
+            await this.prisma.reward.update({
+              where: { id: reward.id },
+              data: {
+                status: 'MINTED',
+                mintedAt: new Date(),
+                stellarMintHash: mintResult.hash,
+              },
+            })
+
+            this.logger.log(
+              `✓ STAR minted on-chain: ${reward.starAmount} ` +
+              `STAR to ${walletAddress.substring(0, 8)}... ` +
+              `hash: ${mintResult.hash}`
+            )
+          } catch (error) {
+            // CRITICAL: on-chain mint failure MUST NOT fail payment
+            // Payment is complete. Only reward minting failed.
+            this.logger.error(
+              `STAR on-chain mint failed for reward ` +
+              `${reward.id}: ${error}`
+            )
+            await this.prisma.reward.update({
+              where: { id: reward.id },
+              data: {
+                status: 'FAILED',
+                stellarMintHash: null,
+              },
+            })
+          }
+        } else {
+          // User has no active wallet — DB record only
+          this.logger.warn(
+            `No active wallet for user ${reward.userId} ` +
+            `— recording reward in DB only`
+          )
+          await this.prisma.reward.update({
+            where: { id: reward.id },
+            data: {
+              status: 'MINTED',
+              mintedAt: new Date(),
+              stellarMintHash: `db-only-no-wallet-${reward.id}`,
+            },
+          })
+        }
+      }
 
       await this.prisma.settlementInstruction.updateMany({
         where: { transactionId: tx.id },

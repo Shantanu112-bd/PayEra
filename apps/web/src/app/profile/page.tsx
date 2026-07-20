@@ -49,6 +49,25 @@ export default function ProfilePage() {
             </div>
             <Button variant="outline" size="sm" className="text-red-500 border-red-500/20 hover:bg-red-500/10">Disconnect</Button>
           </div>
+
+          <div className="flex items-center justify-between p-4 bg-white/5 rounded-lg border border-white/10">
+            <div>
+              <p className="font-medium">Zebpay Account</p>
+              <p className="text-sm text-muted-foreground">Not connected</p>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => {
+                // Redirect to Zebpay OAuth (mocked)
+                const clientId = process.env.NEXT_PUBLIC_ZEBPAY_CLIENT_ID || 'mock_client';
+                const redirectUri = encodeURIComponent('http://localhost:3000/api/zebpay/callback');
+                window.location.href = `https://mock.zebpay.com/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&state=xyz`;
+              }}
+            >
+              Connect Zebpay
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

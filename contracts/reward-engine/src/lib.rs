@@ -105,6 +105,9 @@ impl RewardEngine {
         env.storage()
             .persistent()
             .set(&DataKey::AuthorizedIssuer(admin.clone()), &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::AuthorizedIssuer(admin.clone()), 100, 518400);
         RewardConfigEvent {
             action: symbol_short!("init"),
             account: admin.clone(),
@@ -128,6 +131,9 @@ impl RewardEngine {
         env.storage()
             .persistent()
             .set(&DataKey::AuthorizedIssuer(new_admin.clone()), &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::AuthorizedIssuer(new_admin.clone()), 100, 518400);
         RewardConfigEvent {
             action: symbol_short!("admin"),
             account: admin,
@@ -195,6 +201,9 @@ impl RewardEngine {
         env.storage()
             .persistent()
             .set(&DataKey::AuthorizedIssuer(issuer.clone()), &enabled);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::AuthorizedIssuer(issuer.clone()), 100, 518400);
         RewardConfigEvent {
             action: symbol_short!("issuer"),
             account: issuer.clone(),
@@ -318,9 +327,11 @@ fn issue_reward(
         amount_star,
         created_ledger: env.ledger().sequence(),
     };
+    let key = DataKey::Reward(reward_id.clone());
     env.storage()
         .persistent()
-        .set(&DataKey::Reward(reward_id.clone()), &record);
+        .set(&key, &record);
+    env.storage().persistent().extend_ttl(&key, 100, 518400);
     RewardIssuedEvent {
         reward_id,
         recipient: record.recipient,
@@ -415,14 +426,16 @@ mod test {
     #[contractimpl]
     impl MockStarToken {
         pub fn mint_from_minter(env: Env, minter: Address, to: Address, amount: i128) {
+            let key = MockStarKey::Balance(to.clone());
             let balance: i128 = env
                 .storage()
                 .persistent()
-                .get(&MockStarKey::Balance(to.clone()))
+                .get(&key)
                 .unwrap_or(0);
             env.storage()
                 .persistent()
-                .set(&MockStarKey::Balance(to), &(balance + amount));
+                .set(&key, &(balance + amount));
+            env.storage().persistent().extend_ttl(&key, 100, 518400);
             env.storage()
                 .instance()
                 .set(&MockStarKey::LastMinter, &minter);

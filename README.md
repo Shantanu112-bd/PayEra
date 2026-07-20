@@ -1,6 +1,6 @@
-# CryptoPay Network
+# PayEra Network
 
-Production-grade monorepo architecture for CryptoPay Network.
+Production-grade monorepo architecture for PayEra Network.
 
 This repository is intentionally architecture-only at this stage. It defines
 application, package, tooling, and Soroban contract boundaries without
@@ -64,3 +64,11 @@ remain out of scope until later phases.
 
 Architecture scaffold only. Feature implementation should be added in separate
 workstreams after boundaries are reviewed.
+
+## Latest Commits
+
+- `5b6bc8e` refactor(web): restructure dashboard layout into 3 zones
+- `4f660de` fix(soroban): fix stellar-sdk v16 rpc import compatibility
+- `515e217` fix(cors): allow vercel preview deployments
+- `9a5ae23` fix(cors): add Render URL to allowed origins
+- `28672cc` fix(cors): add Render domain to allowed origins
