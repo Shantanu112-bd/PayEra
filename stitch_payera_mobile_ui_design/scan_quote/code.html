@@ -1,0 +1,230 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet"><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script><script id="tailwind-config">try{
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary-fixed-variant": "#0d5229",
+                    "background": "#f8faf4",
+                    "on-background": "#191c19",
+                    "tertiary-fixed-dim": "#ffb2bf",
+                    "surface-container-low": "#f2f4ee",
+                    "error-container": "#ffdad6",
+                    "surface-tint": "#2b6a3e",
+                    "primary-container": "#2c6b3f",
+                    "tertiary-container": "#924858",
+                    "on-error": "#ffffff",
+                    "secondary": "#556158",
+                    "on-primary-container": "#a6e9b2",
+                    "on-tertiary-fixed": "#3c0416",
+                    "surface-container": "#ecefe8",
+                    "surface-container-highest": "#e1e3dd",
+                    "on-secondary-fixed-variant": "#3e4a41",
+                    "secondary-fixed": "#d9e6da",
+                    "inverse-surface": "#2e312d",
+                    "surface-variant": "#e1e3dd",
+                    "on-tertiary": "#ffffff",
+                    "on-surface": "#191c19",
+                    "on-secondary-container": "#5b675e",
+                    "secondary-fixed-dim": "#bdcabe",
+                    "outline-variant": "#c0c9be",
+                    "surface-container-high": "#e6e9e3",
+                    "outline": "#707970",
+                    "primary-fixed-dim": "#94d6a0",
+                    "on-primary-fixed": "#00210c",
+                    "on-tertiary-fixed-variant": "#743040",
+                    "on-primary": "#ffffff",
+                    "on-secondary": "#ffffff",
+                    "tertiary": "#753141",
+                    "tertiary-fixed": "#ffd9de",
+                    "secondary-container": "#d9e6da",
+                    "on-surface-variant": "#404940",
+                    "on-error-container": "#93000a",
+                    "surface-bright": "#f8faf4",
+                    "error": "#ba1a1a",
+                    "surface": "#f8faf4",
+                    "primary-fixed": "#aff2ba",
+                    "inverse-primary": "#94d6a0",
+                    "surface-container-lowest": "#ffffff",
+                    "on-tertiary-container": "#ffcdd5",
+                    "inverse-on-surface": "#eff2eb",
+                    "on-secondary-fixed": "#131e17",
+                    "primary": "#0e5229",
+                    "surface-dim": "#d8dbd5"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "sm": "8px",
+                    "unit": "4px",
+                    "lg": "24px",
+                    "xs": "4px",
+                    "md": "16px",
+                    "xl": "32px",
+                    "stack-gap": "12px",
+                    "container-padding": "20px"
+            },
+            "fontFamily": {
+                    "headline-lg-mobile": ["Hanken Grotesk"],
+                    "body-md": ["Hanken Grotesk"],
+                    "label-sm": ["Hanken Grotesk"],
+                    "body-lg": ["Hanken Grotesk"],
+                    "headline-md": ["Hanken Grotesk"],
+                    "headline-lg": ["Hanken Grotesk"],
+                    "label-md": ["Hanken Grotesk"]
+            },
+            "fontSize": {
+                    "headline-lg-mobile": ["26px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "label-sm": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    }catch(_e){}</script><meta charset="utf-8"></head><body class="bg-background font-body-md text-on-background overflow-hidden h-screen flex flex-col">
+<!-- Top App Bar (From Shared Components) -->
+<header class="w-full top-0 sticky z-40 bg-transparent flex justify-between items-center px-container-padding py-md">
+<div class="flex items-center gap-md">
+<div class="w-10 h-10 rounded-full bg-surface-container overflow-hidden border border-outline-variant">
+<img class="w-full h-full object-cover" data-alt="A professional studio headshot of a modern young entrepreneur in a minimalist light green office setting. The lighting is soft and even, highlighting a friendly expression. The background is a clean, textured off-white wall with subtle architectural shadows, maintaining a high-contrast and premium institutional feel." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBuAWZ24WZEVrl-FHigEdGVn5Vv49D0s4UuJVN3oAArmH2vrPBGMg_N9uxxTF16dFV8L47gmP4KzGUpJmBii4pO_BHzMtlGnG43N4Pn7St9VOBRzJSQ40EHKxe4oB1UeHnJkNwUEk2xVpQNfNUNHOT_BoHxVm3K82virc8-8ucCU3IkcPeiQ8ZoOIgMn10EaejJL0oc-XsIc2KcDROPgwZHiSL8znZW9Mm89T18x75Cp4HVY752FNHqwjeHAKxHJu198iGpbLI_0Is">
+</div>
+<h1 class="text-headline-md-mobile font-headline-md text-white drop-shadow-md">PayEra</h1>
+</div>
+<button class="text-white hover:opacity-80 transition-opacity duration-200 active:scale-95 drop-shadow-md">
+<span class="material-symbols-outlined" data-original-icon="notifications">notifications</span>
+</button>
+</header>
+<!-- Camera Viewfinder Background -->
+<main class="flex-grow relative overflow-hidden">
+<div class="absolute inset-0 z-0">
+<img class="w-full h-full object-cover" data-alt="A first-person perspective view of a clean, minimalist organic grocery store checkout counter. The focus is on a wooden surface where a small, sleek digital payment terminal with a QR code is displayed. The background shows blurred shelves of fresh green produce and eco-friendly packaging. The lighting is natural and bright, conveying a sense of fresh, high-quality, and modern retail environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB1Fn5xFe4nKRRtSp_8j9vUMa5otaIEQaNpc22tIiQ95iVioPMjpvGpoE3uoU0sku-bgnELULTwswiDAxQJaqp6-8dI4Z76oNxv37ecQLac8c6T5VjwO2T3RwHAFTUf4l2bajQRDgWjiJlPcRSvoCHtIY0G4NH0BbyRnjsDRmGyenYt8A--H5N7tHnVOgbNVDNY5_eyNYoyNJ9TN7AZQNyzIXsAp88Ymq-y-O_F5jZo9_SDSHZUXXfthTycPmxWMlTwN-YwAlDYUGM">
+</div>
+<!-- Scanner Overlay -->
+<div class="absolute inset-0 z-10 flex items-center justify-center pointer-events-none pb-48">
+<div class="w-64 h-64 scanner-frame relative rounded-xl">
+<div class="scanner-line absolute w-full top-0"></div>
+<div class="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-primary-fixed rounded-tl-lg"></div>
+<div class="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-primary-fixed rounded-tr-lg"></div>
+<div class="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-primary-fixed rounded-bl-lg"></div>
+<div class="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-primary-fixed rounded-br-lg"></div>
+</div>
+</div>
+<!-- Payment Quote Bottom Sheet -->
+<div class="absolute bottom-0 left-0 right-0 z-30 bg-surface rounded-t-[24px] bottom-sheet-animation shadow-2xl p-lg pb-32">
+<!-- Handle -->
+<div class="w-12 h-1 bg-outline-variant rounded-full mx-auto mb-lg"></div>
+<!-- Merchant Info -->
+<div class="flex items-center gap-md mb-lg">
+<div class="w-12 h-12 bg-primary-container rounded-xl flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined" data-original-icon="storefront">storefront</span>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md-mobile text-on-surface">Green Grocers</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Merchant ID: GG-99420-LX</p>
+</div>
+<div class="ml-auto text-right">
+<p class="font-headline-md text-headline-md-mobile text-primary">$42.50</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant">Total Due</p>
+</div>
+</div>
+<!-- Asset Selector Grid -->
+<div class="grid grid-cols-2 gap-md mb-lg">
+<button class="flex flex-col gap-unit p-md bg-primary-container rounded-xl border-2 border-primary transition-all">
+<div class="flex justify-between items-center w-full">
+<span class="font-label-md text-label-md text-on-primary-container">Pay with XLM</span>
+<span class="material-symbols-outlined text-on-primary-container" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="flex items-center gap-xs mt-xs">
+<span class="material-symbols-outlined text-on-primary-container">account_balance_wallet</span>
+<span class="font-body-md text-body-md text-on-primary-container">354.12 XLM</span>
+</div>
+</button>
+<button class="flex flex-col gap-unit p-md bg-surface-container-low rounded-xl border-2 border-transparent hover:border-outline-variant transition-all">
+<div class="flex justify-between items-center w-full">
+<span class="font-label-md text-label-md text-on-surface">Pay with USDC</span>
+<span class="material-symbols-outlined text-on-surface-variant">circle</span>
+</div>
+<div class="flex items-center gap-xs mt-xs">
+<span class="material-symbols-outlined text-on-surface-variant">payments</span>
+<span class="font-body-md text-body-md text-on-surface">1,200.00 USDC</span>
+</div>
+</button>
+</div>
+<!-- Quote Details -->
+<div class="space-y-stack-gap p-md bg-surface-container-lowest rounded-xl border border-outline-variant">
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-on-surface-variant">Live Conversion</span>
+<span class="font-label-md text-label-md text-on-surface">1 XLM ≈ $0.12</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="font-body-md text-body-md text-on-surface-variant">Network Fee</span>
+<span class="font-label-md text-label-md text-primary">$0.0001</span>
+</div>
+<div class="pt-sm border-t border-outline-variant flex justify-between items-center">
+<div class="flex items-center gap-xs text-tertiary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">stars</span>
+<span class="font-body-md text-body-md">Cashback Earned</span>
+</div>
+<span class="font-headline-md text-headline-md text-tertiary">10 STAR</span>
+</div>
+</div>
+<!-- Action Button -->
+<div class="flex justify-between items-center p-md mt-lg rounded-xl bg-[#E8F5E9]"><span class="font-label-md text-label-md text-[#2C6B3F]">Cashback Reward</span><span class="font-headline-md text-headline-md text-[#2C6B3F]">+15.50 STAR ✨</span></div><button class="w-full mt-lg py-md px-lg bg-primary text-on-primary font-label-md text-label-md rounded-full shadow-lg hover:opacity-90 active:scale-95 transition-all">
+                Slide to Confirm Payment
+            </button>
+</div>
+</main>
+<!-- Bottom Nav Bar (From Shared Components) -->
+<nav class="fixed bottom-0 w-full z-50 flex justify-around items-center px-4 pb-4 pt-2 bg-surface dark:bg-surface-container-low border-t border-outline-variant dark:border-outline shadow-sm">
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant p-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-sm text-label-sm">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant p-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined">account_balance_wallet</span>
+<span class="font-label-sm text-label-sm">Wallet</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-primary-container dark:bg-primary text-on-primary-container dark:text-on-primary rounded-full p-2 Active: scale-90 transition-transform duration-150" href="#">
+<span class="material-symbols-outlined">qr_code_scanner</span>
+<span class="font-label-sm text-label-sm">Scan</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant p-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined">redeem</span>
+<span class="font-label-sm text-label-sm">Rewards</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant p-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-sm text-label-sm">Profile</span>
+</a>
+</nav>
+<script>
+        // Simple micro-interaction for the "Slide to Confirm" button
+        const confirmBtn = document.querySelector('button.bg-primary');
+        confirmBtn.addEventListener('mousedown', () => {
+            confirmBtn.style.transform = 'scale(0.98)';
+        });
+        confirmBtn.addEventListener('mouseup', () => {
+            confirmBtn.style.transform = 'scale(1)';
+        });
+
+        // Mock animation for the conversion rate updating
+        setInterval(() => {
+            const rates = ["1 XLM ≈ $0.12", "1 XLM ≈ $0.121", "1 XLM ≈ $0.119"];
+            const rateEl = document.querySelector('.flex.justify-between.items-center span.text-on-surface');
+            if (rateEl && rateEl.innerText.includes('XLM')) {
+                rateEl.innerText = rates[Math.floor(Math.random() * rates.length)];
+                rateEl.classList.add('opacity-50');
+                setTimeout(() => rateEl.classList.remove('opacity-50'), 200);
+            }
+        }, 3000);
+    </script>
+
+</body></html>

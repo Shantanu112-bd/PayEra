@@ -34,6 +34,14 @@ pub struct TokenMetadata {
     pub max_supply: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeBurnConfig {
+    pub enabled: bool,
+    pub fee_basis_points: u32, // 1 basis point = 0.01%
+    pub fee_recipient: Address, // Address that receives fees before burn
+}
+
 #[contractevent(topics = ["star"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StarEvent {
@@ -58,6 +66,7 @@ enum DataKey {
     Minter(Address),
     Paused,
     TotalSupply,
+    FeeBurnConfig,
 }
 
 #[contracttype]
@@ -154,6 +163,87 @@ impl StarToken {
         }
         .publish(&env);
         Ok(())
+    }
+
+    pub fn set_fee_burn_config(
+        env: Env,
+        enabled: bool,
+        fee_basis_points: u32,
+        fee_recipient: Address,
+    ) -> Result<(), StarTokenError> {
+        require_not_paused(&env)?;
+        let admin = read_admin(&env);
+        admin.require_auth();
+
+        if fee_basis_points > 10000 {
+            return Err(StarTokenError::InvalidAmount);
+        }
+
+        let config = FeeBurnConfig {
+            enabled,
+            fee_basis_points,
+            fee_recipient: fee_recipient.clone(),
+        };
+        env.storage().instance().set(&DataKey::FeeBurnConfig, &config);
+
+        StarEvent {
+            action: symbol_short!("feeburn"),
+            account: admin.clone(),
+            counterparty: fee_recipient,
+            amount: fee_basis_points as i128,
+            flag: enabled,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    pub fn get_fee_burn_config(env: Env) -> Result<FeeBurnConfig, StarTokenError> {
+        require_initialized(&env)?;
+        Ok(env.storage().instance().get(&DataKey::FeeBurnConfig).unwrap_or(FeeBurnConfig {
+            enabled: false,
+            fee_basis_points: 0,
+            fee_recipient: env.current_contract_address(),
+        }))
+    }
+
+    pub fn burn_fee(env: Env, from: Address, amount: i128) -> Result<i128, StarTokenError> {
+        require_not_paused(&env)?;
+        require_positive(amount)?;
+        from.require_auth();
+
+        let config = env.storage().instance().get(&DataKey::FeeBurnConfig).unwrap_or(FeeBurnConfig {
+            enabled: false,
+            fee_basis_points: 0,
+            fee_recipient: env.current_contract_address(),
+        });
+
+        if !config.enabled || config.fee_basis_points == 0 {
+            return Ok(0);
+        }
+
+        // Calculate fee amount
+        let fee_amount = (amount * config.fee_basis_points as i128) / 10000;
+
+        if fee_amount == 0 {
+            return Ok(0);
+        }
+
+        // Transfer fee to recipient first
+        transfer_internal(&env, &from, &config.fee_recipient, fee_amount)?;
+
+        // Then burn from recipient
+        burn_internal(&env, &config.fee_recipient, fee_amount)?;
+
+        StarEvent {
+            action: symbol_short!("burnfee"),
+            account: from,
+            counterparty: config.fee_recipient,
+            amount: fee_amount,
+            flag: true,
+        }
+        .publish(&env);
+
+        Ok(fee_amount)
     }
 
     pub fn pause(env: Env) -> Result<(), StarTokenError> {

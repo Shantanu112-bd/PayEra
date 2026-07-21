@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PayEra - Secure Digital Payments</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary-fixed-variant": "#0d5229",
+                    "background": "#f8faf4",
+                    "on-background": "#191c19",
+                    "tertiary-fixed-dim": "#ffb2bf",
+                    "surface-container-low": "#f2f4ee",
+                    "error-container": "#ffdad6",
+                    "surface-tint": "#2b6a3e",
+                    "primary-container": "#2c6b3f",
+                    "tertiary-container": "#924858",
+                    "on-error": "#ffffff",
+                    "secondary": "#556158",
+                    "on-primary-container": "#a6e9b2",
+                    "on-tertiary-fixed": "#3c0416",
+                    "surface-container": "#ecefe8",
+                    "surface-container-highest": "#e1e3dd",
+                    "on-secondary-fixed-variant": "#3e4a41",
+                    "secondary-fixed": "#d9e6da",
+                    "inverse-surface": "#2e312d",
+                    "surface-variant": "#e1e3dd",
+                    "on-tertiary": "#ffffff",
+                    "on-surface": "#191c19",
+                    "on-secondary-container": "#5b675e",
+                    "secondary-fixed-dim": "#bdcabe",
+                    "outline-variant": "#c0c9be",
+                    "surface-container-high": "#e6e9e3",
+                    "outline": "#707970",
+                    "primary-fixed-dim": "#94d6a0",
+                    "on-primary-fixed": "#00210c",
+                    "on-tertiary-fixed-variant": "#743040",
+                    "on-primary": "#ffffff",
+                    "on-secondary": "#ffffff",
+                    "tertiary": "#753141",
+                    "tertiary-fixed": "#ffd9de",
+                    "secondary-container": "#d9e6da",
+                    "on-surface-variant": "#404940",
+                    "on-error-container": "#93000a",
+                    "surface-bright": "#f8faf4",
+                    "error": "#ba1a1a",
+                    "surface": "#f8faf4",
+                    "primary-fixed": "#aff2ba",
+                    "inverse-primary": "#94d6a0",
+                    "surface-container-lowest": "#ffffff",
+                    "on-tertiary-container": "#ffcdd5",
+                    "inverse-on-surface": "#eff2eb",
+                    "on-secondary-fixed": "#131e17",
+                    "primary": "#0e5229",
+                    "surface-dim": "#d8dbd5"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "sm": "8px",
+                    "unit": "4px",
+                    "lg": "24px",
+                    "xs": "4px",
+                    "md": "16px",
+                    "xl": "32px",
+                    "stack-gap": "12px",
+                    "container-padding": "20px"
+            },
+            "fontFamily": {
+                    "headline-lg-mobile": ["Hanken Grotesk"],
+                    "body-md": ["Hanken Grotesk"],
+                    "label-sm": ["Hanken Grotesk"],
+                    "body-lg": ["Hanken Grotesk"],
+                    "headline-md": ["Hanken Grotesk"],
+                    "headline-lg": ["Hanken Grotesk"],
+                    "label-md": ["Hanken Grotesk"]
+            },
+            "fontSize": {
+                    "headline-lg-mobile": ["26px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                    "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                    "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                    "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                    "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                    "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                    "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600" }]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            font-family: 'Hanken Grotesk', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .shimmer-btn {
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            background-size: 200% 100%;
+            animation: shimmer 3s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        .float-anim {
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+        .fade-in-up {
+            animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background min-h-screen flex flex-col overflow-hidden">
+<!-- Splash Content Canvas -->
+<main class="flex-1 flex flex-col items-center justify-center relative px-container-padding">
+<!-- Subtle Ambient Background Effect (JS micro-interaction placeholder) -->
+<div class="absolute inset-0 pointer-events-none overflow-hidden opacity-30" id="ambient-glow">
+<div class="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-primary-fixed opacity-20 blur-[120px] rounded-full"></div>
+<div class="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-on-primary-container opacity-10 blur-[100px] rounded-full"></div>
+</div>
+<!-- Top Brand Identity (JSON Reference: TopAppBar Headline) -->
+<div class="z-10 mb-xl fade-in-up" style="animation-delay: 0.1s;">
+<h1 class="font-headline-md text-headline-md-mobile text-primary tracking-tight">PayEra</h1>
+</div>
+<!-- Central Hero Visual Element -->
+<div class="relative w-full max-w-sm flex items-center justify-center fade-in-up" style="animation-delay: 0.3s;">
+<!-- Floating Secure Payment Visual -->
+<div class="float-anim relative z-10 w-full aspect-square bg-surface-container-lowest rounded-[48px] shadow-[0_12px_40px_rgba(26,26,26,0.05)] border border-outline-variant flex items-center justify-center overflow-hidden">
+<img class="w-[80%] h-[80%] object-contain" data-alt="A futuristic and minimalist 3D rendering of a secure digital payment portal. The visual features a sleek, emerald-green translucent credit card floating above a clean white platform, surrounded by holographic data rings and soft glowing particles. The lighting is bright and high-key, emphasizing a clinical yet premium financial technology aesthetic. Deep emerald accents provide a sense of trust and institutional security within a spacious, airy white environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC_WMa5-eEehJ5q7RS-zUKA64AGPgHn1ZhQH8SMGg_AnZFyaCPgwnxTJzXTKcVFU6btR7MsJOM-6rGVsLsysw1onNa6eci5Iewtc94aUWPFrT2Jt8KrjLwuuARugCCTlTj67Jog6Xg-d6P3bEuDuth_3FDrnMUEOsv1NdtDknLPJvWORjBo9h9XBAPNsrerxmfMJ4tv7pxDSyUiyCf15cU3cecc0bgBLt_U1IvZcORCB0RkjhKsANpgmDwB9zlsqzV9wc0N5qCDDAw"/>
+<!-- Decorative Glassmorphic Badge -->
+<div class="absolute bottom-6 right-6 backdrop-blur-md bg-white/60 border border-white/20 p-md rounded-xl flex items-center gap-sm shadow-sm">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+<span class="font-label-md text-label-md text-on-surface">Secure Protocol</span>
+</div>
+</div>
+<!-- Background structural ring -->
+<div class="absolute inset-0 border-[1px] border-outline-variant/30 rounded-full scale-125 -z-0"></div>
+<div class="absolute inset-0 border-[1px] border-outline-variant/20 rounded-full scale-150 -z-0"></div>
+</div>
+<!-- Value Proposition Text -->
+<div class="mt-xl text-center max-w-xs z-10 fade-in-up" style="animation-delay: 0.5s;">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface mb-sm">The Bridge to Fluid Finance</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Seamlessly spend your digital assets at any point of sale globally with instant conversion.</p>
+</div>
+</main>
+<!-- Bottom Actions Area (Pill-shaped CTA) -->
+<footer class="p-container-padding pb-[60px] flex flex-col gap-md z-20 fade-in-up" style="animation-delay: 0.7s;">
+<!-- Primary Action Button -->
+<button class="w-full bg-primary text-on-primary font-label-md text-label-md py-[18px] rounded-full flex items-center justify-center gap-md shadow-[0_4px_12px_rgba(26,26,26,0.1)] active:scale-95 transition-all hover:opacity-90 relative overflow-hidden group">
+<span class="absolute inset-0 shimmer-btn pointer-events-none"></span>
+<span class="material-symbols-outlined text-[20px]">account_balance_wallet</span>
+<span>Connect Freighter Wallet</span>
+</button>
+<!-- Secondary Info / Terms -->
+<p class="text-center font-label-sm text-label-sm text-on-surface-variant px-xl">
+            By connecting, you agree to our <a class="text-primary font-semibold hover:underline" href="#">Terms of Service</a> and <a class="text-primary font-semibold hover:underline" href="#">Privacy Policy</a>.
+        </p>
+</footer>
+<!-- Interactive script for ambient glow following mouse movement -->
+<script>
+        document.addEventListener('mousemove', (e) => {
+            const glow = document.getElementById('ambient-glow');
+            const x = (e.clientX / window.innerWidth) * 50 - 25;
+            const y = (e.clientY / window.innerHeight) * 50 - 25;
+            
+            const firstCircle = glow.children[0];
+            const secondCircle = glow.children[1];
+            
+            firstCircle.style.transform = `translate(${x}px, ${y}px)`;
+            secondCircle.style.transform = `translate(${-x}px, ${-y}px)`;
+        });
+
+        // Simulating the "Connect" interaction
+        const connectBtn = document.querySelector('button');
+        connectBtn.addEventListener('click', () => {
+            // Visual feedback for interaction
+            connectBtn.innerHTML = `
+                <span class="flex items-center gap-md">
+                    <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Authorizing...
+                </span>
+            `;
+            
+            // In a real app, this would trigger the Freighter browser extension
+            setTimeout(() => {
+                alert("Freighter Connection Requested. Check your extension window.");
+                location.reload(); // Reset for demo
+            }, 1500);
+        });
+    </script>
+</body></html>

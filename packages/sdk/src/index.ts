@@ -11,6 +11,8 @@ import { AnalyticsSdk } from "./analytics";
 import { AdminSdk } from "./admin";
 import { RampsClient } from "./ramps";
 import { KycClient } from "./kyc";
+import { StellarSdk } from "./stellar";
+import { AmlSdk } from "./aml";
 
 export { ApiClient, type ApiClientConfig } from "./core/ApiClient";
 export { ApiError } from "./core/ApiError";
@@ -28,12 +30,14 @@ export class CryptoPaySdk {
   public admin: AdminSdk;
   public ramps: RampsClient;
   public kyc: KycClient;
+  public stellar: StellarSdk;
+  public aml: AmlSdk;
 
   private client: ApiClient;
 
   constructor(config: ApiClientConfig) {
     this.client = new ApiClient(config);
-    
+
     this.auth = new AuthSdk(this.client);
     this.users = new UsersSdk(this.client);
     this.wallets = new WalletsSdk(this.client);
@@ -46,6 +50,8 @@ export class CryptoPaySdk {
     this.admin = new AdminSdk(this.client);
     this.ramps = new RampsClient(this.client);
     this.kyc = new KycClient(this.client);
+    this.stellar = new StellarSdk(this.client);
+    this.aml = new AmlSdk(this.client);
   }
 }
 
@@ -106,4 +112,6 @@ export {
   AdminSdk,
   RampsClient,
   KycClient,
+  StellarSdk,
+  AmlSdk,
 };

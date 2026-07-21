@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter, IBM_Plex_Mono } from "next/font/google";
 import { Providers } from "../components/providers/Providers";
 import { AppShell } from "../components/layout/AppShell";
+import { AppLock } from "../components/layout/AppLock";
+import { DemoTour } from "../components/layout/DemoTour";
 import "./globals.css";
 
 const inter = Inter({ 
@@ -31,9 +33,12 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${ibmPlexMono.variable}`}>
       <body className="bg-page text-ink min-h-screen antialiased">
         <Providers>
-          <AppShell>
-            {children}
-          </AppShell>
+          <AppLock>
+            <AppShell>
+              {children}
+            </AppShell>
+            <DemoTour />
+          </AppLock>
         </Providers>
       </body>
     </html>

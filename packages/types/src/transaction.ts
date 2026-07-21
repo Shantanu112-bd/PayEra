@@ -38,6 +38,8 @@ export interface Transaction {
   metadata: any;
   createdAt: Date | string;
   updatedAt: Date | string;
+  events?: TransactionEvent[];
+  settlementInstruction?: SettlementInstruction;
 }
 
 export interface TransactionEvent {

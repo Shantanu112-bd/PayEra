@@ -86,6 +86,7 @@ export enum TransactionType {
 
 export enum PaymentRail {
   UPI_MOCK = "UPI_MOCK",
+  DECENTRO = "DECENTRO",
 }
 
 export enum SettlementLayer {

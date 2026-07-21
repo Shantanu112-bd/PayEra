@@ -3,10 +3,11 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { RewardBalanceCard, Skeleton, MetricCard, Button } from "@cryptopay/ui";
+import { Skeleton, MetricCard, Button } from "@cryptopay/ui";
 import { Users, Star, Gift, QrCode } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { StarBalance } from "../../components/stellar";
 
 /* ─── SECTION TAG ─── */
 function SectionTag({ label }: { label: string }) {
@@ -20,25 +21,21 @@ function SectionTag({ label }: { label: string }) {
 }
 
 export default function RewardsPage() {
-  const { data: rewards, isLoading } = useQuery({
+  const { data: rewardsBalance, isLoading } = useQuery({
     queryKey: ["rewards"],
-    queryFn: async () => {
-      // Fetch balance — API returns { mintedStar, pendingStar, lifetimeStar }
-      const balanceObj = await cryptoPaySdk.rewards.getRewards();
-      return { totalMinted: (balanceObj as any).mintedStar?.toString() || "0" };
-    },
+    queryFn: () => cryptoPaySdk.rewards.getRewards(),
   });
 
   // Use the seeded Demo User ID (matches store default)
   const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
-  
+
   const { data: metrics, isLoading: metricsLoading } = useQuery({
     queryKey: ["consumer-reward-metrics", DEMO_USER_ID],
     queryFn: () => cryptoPaySdk.analytics.getConsumerRewardMetrics(DEMO_USER_ID),
   });
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
@@ -58,15 +55,21 @@ export default function RewardsPage() {
         </div>
       </div>
 
-      {/* Stats Card */}
+      {/* Real On-Chain STAR Balance Card */}
+      <div className="space-y-4">
+        <SectionTag label="ON-CHAIN BALANCE" />
+        <StarBalance />
+      </div>
+
+      {/* Stats Card - Backend derived */}
       <div className="stats-card stats-card-3">
         <div className="stat-col">
-          <div className="stat-number !text-4xl">{rewards?.totalMinted || "2,500"}</div>
-          <div className="stat-primary-label">Total STAR</div>
+          <div className="stat-number !text-4xl">{rewardsBalance?.mintedStar?.toString() || "0"}</div>
+          <div className="stat-primary-label">Total STAR Minted</div>
         </div>
         <div className="stat-col">
-          <div className="stat-number !text-4xl">340</div>
-          <div className="stat-primary-label">This month</div>
+          <div className="stat-number !text-4xl">{rewardsBalance?.pendingStar?.toString() || "0"}</div>
+          <div className="stat-primary-label">This Month</div>
         </div>
         <div className="stat-col">
           <div className="stat-number !text-4xl">0</div>
@@ -85,7 +88,7 @@ export default function RewardsPage() {
             <span className="text-sm text-muted font-[family-name:var(--font-ibm-plex-mono)]">500 STAR to Gold</span>
           </div>
           <div className="progress-bar-track">
-            <motion.div 
+            <motion.div
               className="progress-bar-fill"
               initial={{ width: 0 }}
               animate={{ width: "60%" }}

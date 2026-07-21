@@ -1,9 +1,10 @@
-import { BadRequestException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { CACHE_MANAGER } from "@nestjs/cache-manager";
 import { Cache } from "cache-manager";
 import { Keypair } from "@stellar/stellar-sdk";
 import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcryptjs";
+import { v4 as uuidv4 } from 'uuid';
 
 import { UserRole, UserStatus, WalletStatus } from "../generated/prisma";
 import { PrismaService } from "../prisma/prisma.service";
@@ -21,6 +22,8 @@ import type { RefreshDto } from "./dto/refresh.dto";
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
@@ -308,9 +311,25 @@ export class AuthService {
       throw new BadRequestException("Invalid refresh token");
     }
 
+    // Verify the provided refresh token matches the stored hash
     const isMatch = await bcrypt.compare(dto.refreshToken, user.hashedRefreshToken);
     if (!isMatch) {
-      throw new BadRequestException("Invalid refresh token");
+      // Token reuse detected - revoke ALL tokens for this user
+      this.logger.warn(`Refresh token reuse detected for user ${user.id}. Revoking all tokens.`);
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { hashedRefreshToken: null },
+      });
+      await this.prisma.adminLog.create({
+        data: {
+          actorUserId: user.id,
+          action: 'TOKEN_REUSE_DETECTED',
+          targetType: 'USER',
+          targetId: user.id,
+          metadata: { reason: 'Refresh token reuse detected - all tokens revoked' } as any,
+        },
+      });
+      throw new UnauthorizedException("Token reuse detected. All sessions revoked. Please log in again.");
     }
 
     try {
@@ -319,7 +338,9 @@ export class AuthService {
       throw new BadRequestException("Refresh token expired");
     }
 
+    // Generate new token pair (rotation)
     const { accessToken, refreshToken } = await this.generateTokens(user.id, user.role);
+
     return {
       auth: { accessToken, refreshToken },
     };

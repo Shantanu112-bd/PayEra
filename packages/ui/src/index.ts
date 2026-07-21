@@ -7,6 +7,7 @@ export * from "./foundation/Button";
 export * from "./foundation/Dialog";
 export * from "./foundation/Input";
 export * from "./foundation/LoadingSpinner";
+export * from "./foundation/Pagination";
 export * from "./foundation/Skeleton";
 export * from "./foundation/Textarea";
 

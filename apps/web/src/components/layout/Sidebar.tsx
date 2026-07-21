@@ -3,8 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Wallet, QrCode, History, Gift, User, LogOut, Cpu } from "lucide-react";
+import { LayoutDashboard, Wallet, QrCode, History, Gift, User, LogOut, Cpu, ShieldAlert, ShieldCheck, Building2, Code } from "lucide-react";
 import { cn } from "@cryptopay/ui";
+import { useQuery } from "@tanstack/react-query";
+import { cryptoPaySdk } from "@cryptopay/sdk";
 
 const consumerNavItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -19,8 +21,12 @@ const consumerNavItems = [
 const merchantNavItems = [
   { name: "Overview", href: "/merchant", icon: LayoutDashboard },
   { name: "Transactions", href: "/merchant/transactions", icon: History },
+  { name: "Settlements", href: "/merchant/settlements", icon: Building2 },
   { name: "Campaigns", href: "/merchant/campaigns", icon: Gift },
   { name: "Analytics", href: "/merchant/analytics", icon: Wallet },
+  { name: "QR Codes", href: "/merchant/qr-codes", icon: QrCode },
+  { name: "Developers", href: "/merchant/developers/webhooks", icon: Code },
+  { name: "Settings", href: "/merchant/profile", icon: User },
 ];
 
 export function Sidebar() {
@@ -63,6 +69,11 @@ export function Sidebar() {
         })}
       </nav>
 
+      {/* KYC Status Badge */}
+      <div className="p-4 mx-4 mb-4 rounded-xl border border-ink/10 bg-surface">
+        <KYCStatusBadge />
+      </div>
+
       <div className="p-4 border-t-[1.5px] border-ink mt-auto">
         <button className="flex items-center gap-3 px-3 py-2.5 rounded-[12px] w-full text-ink/50 hover:bg-ink/5 hover:text-ink transition-colors">
           <LogOut className="h-5 w-5" />
@@ -70,5 +81,33 @@ export function Sidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+function KYCStatusBadge() {
+  const { data: user } = useQuery({
+    queryKey: ["current-user-profile"],
+    queryFn: () => cryptoPaySdk.auth.getCurrentUser()
+  });
+
+  const kycStatus = user?.kycStatus || "NOT_STARTED";
+
+  if (kycStatus === "VERIFIED" || kycStatus === "APPROVED") {
+    return (
+      <div className="flex items-center gap-2 text-green-700 text-sm font-medium">
+        <ShieldCheck className="w-4 h-4" /> KYC Verified
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-yellow-700 text-sm font-medium">
+        <ShieldAlert className="w-4 h-4" /> KYC Required
+      </div>
+      <Link href="/profile" className="block text-xs underline text-ink">
+        Complete now to unlock limits
+      </Link>
+    </div>
   );
 }

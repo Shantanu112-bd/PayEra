@@ -12,10 +12,8 @@ export class WalletsSdk {
     return this.client.get<Wallet>(`/wallets/${walletId}`);
   }
 
-  async getBalances(walletId: string): Promise<Array<{ asset: string; balance: string }>> {
-    // This assumes the backend returns balance details either on the wallet object or via a dedicated endpoint.
-    // For now, we fetch the wallet and extract its balance property if it exists, or hit a future balance endpoint.
-    return this.client.get<Array<{ asset: string; balance: string }>>(`/wallets/${walletId}/balances`);
+  async updateWallet(walletId: string, data: Partial<Wallet>): Promise<Wallet> {
+    return this.client.patch<Wallet>(`/wallets/${walletId}`, data);
   }
 
   async listWallets(): Promise<PaginationResponse<Wallet>> {

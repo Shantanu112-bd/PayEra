@@ -186,6 +186,19 @@ export class TransactionsService {
       },
     })
 
+    // Create spend reward for the transaction
+    const starAmount = calculateSpendRewardStar(amountInPaise);
+    await this.prisma.reward.create({
+      data: {
+        userId: owner.id,
+        transactionId: newTransaction.id,
+        reason: RewardReason.SPEND,
+        starAmount,
+        formulaVersion: 'STAR_SPEND_V1',
+        status: RewardStatus.PENDING,
+      },
+    });
+
     return newTransaction;
   }
 
@@ -368,5 +381,89 @@ export class TransactionsService {
     });
 
     return (maxEvent._max.sequence ?? 0) + 1;
+  }
+
+  async getTaxReport(userId: string, year: number) {
+    const startOfYear = new Date(year, 0, 1);
+    const endOfYear = new Date(year + 1, 0, 1);
+
+    const transactions = await this.prisma.transaction.findMany({
+      where: {
+        userId,
+        status: TransactionStatus.COMPLETED,
+        completedAt: {
+          gte: startOfYear,
+          lt: endOfYear,
+        },
+      },
+      include: {
+        merchant: true,
+        rewards: true,
+        settlementInstruction: true,
+        events: { orderBy: { sequence: 'asc' } },
+      },
+      orderBy: { completedAt: 'asc' },
+    });
+
+    const totalTransactions = transactions.length;
+    const totalSpentPaise = transactions.reduce((sum, tx) => sum + Number(tx.amountInPaise), 0);
+    const totalStarRewards = transactions.reduce((sum, tx) =>
+      sum + tx.rewards.reduce((rSum, r) => rSum + Number(r.starAmount), 0), 0);
+
+    // Group by asset type
+    const byAsset = transactions.reduce((acc, tx) => {
+      const asset = tx.assetIn;
+      if (!acc[asset]) {
+        acc[asset] = { count: 0, totalPaise: 0, totalCrypto: 0 };
+      }
+      acc[asset].count++;
+      acc[asset].totalPaise += Number(tx.amountInPaise);
+      acc[asset].totalCrypto += Number(tx.amountInCrypto);
+      return acc;
+    }, {} as Record<string, { count: number; totalPaise: number; totalCrypto: number }>);
+
+    // Group by month
+    const byMonth = transactions.reduce((acc, tx) => {
+      const month = tx.completedAt!.getMonth(); // get month 0-11
+      const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+      if (!acc[monthKey]) {
+        acc[monthKey] = { count: 0, totalPaise: 0, starRewards: 0 };
+      }
+      acc[monthKey].count++;
+      acc[monthKey].totalPaise += Number(tx.amountInPaise);
+      acc[monthKey].starRewards += tx.rewards.reduce((sum, r) => sum + Number(r.starAmount), 0);
+      return acc;
+    }, {} as Record<string, { count: number; totalPaise: number; starRewards: number }>);
+
+    // Detailed transaction list for the report
+    const transactionDetails = transactions.map(tx => ({
+      id: tx.id,
+      publicId: tx.publicId,
+      date: tx.completedAt!.toISOString(),
+      merchantName: tx.merchant.displayName,
+      merchantUpiVpa: tx.merchantUpiVpa,
+      assetIn: tx.assetIn,
+      amountInCrypto: tx.amountInCrypto,
+      amountInPaise: tx.amountInPaise.toString(),
+      amountInInr: (Number(tx.amountInPaise) / 100).toFixed(2),
+      starRewards: tx.rewards.reduce((sum, r) => sum + Number(r.starAmount), 0),
+      stellarTransactionHash: tx.stellarTransactionHash,
+      settlementStatus: tx.settlementInstruction?.status,
+      settlementReference: tx.settlementInstruction?.mockReference,
+    }));
+
+    return {
+      taxYear: year,
+      generatedAt: new Date().toISOString(),
+      summary: {
+        totalTransactions,
+        totalSpentInr: (totalSpentPaise / 100).toFixed(2),
+        totalStarRewards,
+      },
+      byAsset,
+      byMonth,
+      transactions: transactionDetails,
+      disclaimer: "This report is generated for informational purposes only and does not constitute tax advice. Please consult a qualified tax professional for your specific situation.",
+    };
   }
 }

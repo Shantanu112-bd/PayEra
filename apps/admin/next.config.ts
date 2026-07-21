@@ -14,6 +14,17 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: resolve(appRoot, "../.."),
   },
+  async headers() {
+    return [
+      {
+        source: '/.well-known/stellar.toml',
+        headers: [
+          { key: 'Content-Type', value: 'text/plain' },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+        ],
+      },
+    ]
+  },
 };
 
 export default nextConfig;

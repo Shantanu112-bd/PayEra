@@ -5,7 +5,7 @@ import { ShieldCheck } from 'lucide-react';
 import { cryptoPaySdk } from '@cryptopay/sdk';
 import { useAppStore } from '../../lib/store';
 
-export function KycOnboarding() {
+export function KycOnboarding({ onClose }: { onClose?: () => void }) {
   const { kycStatus, setKycStatus } = useAppStore();
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -17,6 +17,7 @@ export function KycOnboarding() {
       const result = await cryptoPaySdk.kyc.start();
       window.open(result.verificationUrl, '_blank');
       setKycStatus('PENDING');
+      if (onClose) onClose();
     } catch (err) {
       setError('Failed to start verification. Please try again.');
     } finally {

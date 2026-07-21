@@ -1,10 +1,12 @@
 import { Module } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
 import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { LoggerModule } from 'nestjs-pino';
 import * as crypto from 'crypto';
 
 import { AdminModule } from "./admin/admin.module";
+import { AmlModule } from "./aml/aml.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
 import { AuthModule } from "./auth/auth.module";
 import { CampaignsModule } from "./campaigns/campaigns.module";
@@ -22,10 +24,11 @@ import { StellarModule } from './stellar/stellar.module';
 import { TransactionProcessorModule } from './transaction-processor/transaction-processor.module';
 import { CircuitBreakerModule } from './common/circuit-breaker/circuit-breaker.module';
 import { RampsModule } from './ramps/ramps.module';
-import { ZebpayModule } from './zebpay/zebpay.module';
+import { PaginationInterceptor } from './common/interceptors/pagination.interceptor';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
     LoggerModule.forRoot({
       pinoHttp: {
         genReqId: (req: any) => (req.headers['x-request-id'] as string) || crypto.randomUUID(),
@@ -57,7 +60,7 @@ import { ZebpayModule } from './zebpay/zebpay.module';
     TransactionProcessorModule,
     CircuitBreakerModule,
     RampsModule,
-    ZebpayModule,
+    AmlModule,
   ],
   controllers: [
     HealthController,
@@ -66,6 +69,10 @@ import { ZebpayModule } from './zebpay/zebpay.module';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: PaginationInterceptor,
     },
   ],
 })

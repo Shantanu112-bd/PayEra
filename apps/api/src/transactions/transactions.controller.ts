@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Inject, Param, Post, Query, UseGuards, Headers } from "@nestjs/common";
-import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiOperation, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { Roles } from "../common/decorators/roles.decorator";
 import { UserRole } from "../generated/prisma";
@@ -102,5 +102,16 @@ export class TransactionsController {
     @Body() dto: FailTransactionDto,
   ) {
     return this.transactionsService.fail(principal, id, dto);
+  }
+
+  @Get("me/tax-report")
+  @ApiOperation({ summary: "Get annual tax report for the current user." })
+  @ApiQuery({ name: 'year', required: false, description: 'Tax year (defaults to current year)', type: Number })
+  async getTaxReport(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Query('year') year?: string,
+  ) {
+    const taxYear = year ? parseInt(year, 10) : new Date().getFullYear();
+    return this.transactionsService.getTaxReport(principal.id, taxYear);
   }
 }

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { PrismaService } from "../prisma/prisma.service";
 import { jsonObject } from "../common/utils/json";
@@ -11,10 +11,16 @@ import type { ListUsersDto } from "../users/dto/list-users.dto";
 import type { ListTransactionsDto } from "../transactions/dto/list-transactions.dto";
 import type { ListRewardsDto } from "../rewards/dto/list-rewards.dto";
 import type { UpdateUserStatusDto } from "./dto/update-user-status.dto";
+import { SorobanService } from "../stellar/soroban.service";
 
 @Injectable()
 export class AdminService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(AdminService.name);
+
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    private readonly sorobanService: SorobanService,
+  ) {}
 
   async overview() {
     const [
@@ -111,7 +117,31 @@ export class AdminService {
     });
     await this.log(actor, "merchant.approve", "merchant", merchantId, before, after);
 
+    // Sync to Soroban MerchantRegistry contract - register if needed, then approve
+    try {
+      const onChainMerchant = await this.sorobanService.getMerchant(merchantId);
+      if (!onChainMerchant) {
+        // Register merchant on-chain first
+        await this.sorobanService.registerMerchant({
+          merchantId,
+          owner: before.ownerUserId ?? 'GA6MPSEDZWDYVFN2CLITDXSM2WI545AQATWRPJAA4QKBJKHSLUI5JAE6', // platform default
+          upiIdHash: before.defaultUpiVpa ? this.hashUpiVpa(before.defaultUpiVpa) : '0'.repeat(64),
+          metadataHash: '0'.repeat(64),
+        });
+      }
+      await this.sorobanService.approveMerchant(merchantId);
+      this.logger.log(`Merchant ${merchantId} approved on-chain`);
+    } catch (error) {
+      this.logger.error(`Failed to approve merchant ${merchantId} on-chain: ${error}`);
+      // Don't fail the approval if on-chain sync fails - admin can retry
+    }
+
     return after;
+  }
+
+  private hashUpiVpa(vpa: string): string {
+    const crypto = require('crypto');
+    return crypto.createHash('sha256').update(vpa).digest('hex').padStart(64, '0').slice(-64);
   }
 
   async rejectMerchant(actor: AuthenticatedPrincipal, merchantId: string, dto: ReviewMerchantDto) {
@@ -127,6 +157,14 @@ export class AdminService {
       where: { id: merchantId },
     });
     await this.log(actor, "merchant.reject", "merchant", merchantId, before, after);
+
+    // Sync to Soroban MerchantRegistry
+    try {
+      await this.sorobanService.rejectMerchant(merchantId);
+      this.logger.log(`Merchant ${merchantId} rejected on-chain`);
+    } catch (error) {
+      this.logger.error(`Failed to reject merchant ${merchantId} on-chain: ${error}`);
+    }
 
     return after;
   }
@@ -144,6 +182,14 @@ export class AdminService {
       where: { id: merchantId },
     });
     await this.log(actor, "merchant.suspend", "merchant", merchantId, before, after);
+
+    // Sync to Soroban MerchantRegistry
+    try {
+      await this.sorobanService.suspendMerchant(merchantId);
+      this.logger.log(`Merchant ${merchantId} suspended on-chain`);
+    } catch (error) {
+      this.logger.error(`Failed to suspend merchant ${merchantId} on-chain: ${error}`);
+    }
 
     return after;
   }
