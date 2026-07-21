@@ -5,16 +5,12 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "../../lib/query-client";
 import { initializeSdk } from "@cryptopay/sdk";
 import { StellarWalletProvider } from "./StellarWalletProvider";
-import { AppLock } from "../auth/AppLock";
-import { KycOnboarding } from "../kyc/KycOnboarding";
-import { KycPending } from "../kyc/KycPending";
+import { AppShell } from "../layout/AppShell";
 import { useQuery } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
+import { usePathname, useRouter } from "next/navigation";
 
 import { useAppStore } from "../../lib/store";
-
-// Demo User ID — kept for reference if needed
-const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
 
 const getApiUrl = () => {
   const url = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -34,49 +30,51 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <StellarWalletProvider>
       <QueryClientProvider client={queryClient}>
-        <AppLockWrapper>{children}</AppLockWrapper>
+        <AuthGate>{children}</AuthGate>
       </QueryClientProvider>
     </StellarWalletProvider>
   );
 }
 
-function AppLockWrapper({ children }: { children: React.ReactNode }) {
-  const { 
-    isAppUnlocked, 
-    accessToken, 
-    kycStatus,
-    setKycStatus 
-  } = useAppStore();
+// Public routes accessible without authentication
+const PUBLIC_ROUTES = ["/"];
+// Routes that require auth but must remain reachable while KYC is incomplete
+const KYC_ROUTES = ["/kyc"];
+
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { accessToken, kycStatus, setKycStatus } = useAppStore();
+  const pathname = usePathname();
+  const router = useRouter();
 
   // Fetch real KYC status on every authenticated load
   const { data: me } = useQuery({
-    queryKey: ['me', accessToken],
+    queryKey: ["me", accessToken],
     queryFn: () => cryptoPaySdk.auth.getCurrentUser(),
     enabled: !!accessToken,
   });
 
   React.useEffect(() => {
-    if (me?.kycStatus) {
-      setKycStatus(me.kycStatus);
-    }
+    if (me?.kycStatus) setKycStatus(me.kycStatus);
   }, [me, setKycStatus]);
 
-  // Not logged in — show connect wallet flow
-  if (!accessToken) return <>{children}</>;
+  const isPublic = PUBLIC_ROUTES.includes(pathname);
+  const isKycRoute = KYC_ROUTES.some((r) => pathname.startsWith(r));
 
-  // Logged in but app locked — show biometric/PIN
-  if (!isAppUnlocked) return <AppLock />;
+  // Not logged in → force to splash/connect-wallet
+  React.useEffect(() => {
+    if (!accessToken && !isPublic) router.replace("/");
+  }, [accessToken, isPublic, router]);
 
-  // Logged in, unlocked, but KYC not done
-  const kycRequired = !kycStatus || 
-    kycStatus === 'NOT_STARTED' || 
-    kycStatus === 'REJECTED';
-  const kycPending = kycStatus === 'PENDING' || 
-    kycStatus === 'IN_REVIEW';
+  // Logged in but KYC not verified → force to KYC flow
+  const kycVerified = kycStatus === "VERIFIED";
+  React.useEffect(() => {
+    if (accessToken && !kycVerified && !isKycRoute && !isPublic) {
+      router.replace("/kyc");
+    }
+  }, [accessToken, kycVerified, isKycRoute, isPublic, router]);
 
-  if (kycRequired) return <KycOnboarding />;
-  if (kycPending) return <KycPending />;
+  // Public route (splash) renders bare, no shell
+  if (isPublic) return <>{children}</>;
 
-  // All checks passed — show app
-  return <>{children}</>;
+  return <AppShell>{children}</AppShell>;
 }

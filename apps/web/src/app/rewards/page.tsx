@@ -1,133 +1,132 @@
 "use client";
 
-import * as React from "react";
+import React from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { Skeleton, MetricCard, Button } from "@cryptopay/ui";
-import { Users, Star, Gift, QrCode } from "lucide-react";
-import Link from "next/link";
-import { motion } from "framer-motion";
-import { StarBalance } from "../../components/stellar";
+import { useStellarWallet } from "../../components/providers/StellarWalletProvider";
+import { TopBar } from "../../components/layout/TopBar";
 
-/* ─── SECTION TAG ─── */
-function SectionTag({ label }: { label: string }) {
+const REDEEM_OPTIONS = [
+  { icon: "percent", label: "Cashback" },
+  { icon: "card_giftcard", label: "Gift Cards" },
+  { icon: "local_offer", label: "Fee Discount" },
+  { icon: "volunteer_activism", label: "Donate" },
+];
+
+function StatusChip({ status }: { status: string }) {
+  const cls =
+    status === "MINTED"
+      ? "bg-secondary-container text-primary"
+      : status === "PENDING"
+      ? "bg-surface-container text-on-surface-variant"
+      : "bg-error-container text-error";
   return (
-    <div className="section-tag">
-      <span className="tag-marker" />
-      <span className="tag-line" />
-      <span className="tag-label">{label}</span>
-    </div>
+    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${cls}`}>
+      {status}
+    </span>
   );
 }
 
 export default function RewardsPage() {
-  const { data: rewardsBalance, isLoading } = useQuery({
-    queryKey: ["rewards"],
-    queryFn: () => cryptoPaySdk.rewards.getRewards(),
+  const { publicKey } = useStellarWallet();
+
+  const { data: starBalance, isLoading: balanceLoading } = useQuery({
+    queryKey: ["star-balance", publicKey],
+    queryFn: () => cryptoPaySdk.stellar.getStarBalance(publicKey!),
+    enabled: !!publicKey,
   });
 
-  // Use the seeded Demo User ID (matches store default)
-  const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
-
-  const { data: metrics, isLoading: metricsLoading } = useQuery({
-    queryKey: ["consumer-reward-metrics", DEMO_USER_ID],
-    queryFn: () => cryptoPaySdk.analytics.getConsumerRewardMetrics(DEMO_USER_ID),
+  const { data: rewardsData, isLoading: rewardsLoading } = useQuery({
+    queryKey: ["rewards-list"],
+    queryFn: () => cryptoPaySdk.rewards.listRewards({ limit: 10 }),
   });
+
+  const rewards: any[] = (rewardsData as any)?.data ?? [];
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="space-y-8"
-    >
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="min-h-screen bg-background pb-24">
+      <TopBar title="Rewards" />
+
+      <div className="px-[20px] space-y-5 pt-2">
+        {/* Hero card */}
+        <div className="rewards-gradient rounded-[24px] p-6 text-white space-y-1">
+          <p className="text-[13px] font-medium opacity-80">STAR Balance</p>
+          {balanceLoading ? (
+            <div className="h-10 w-32 bg-white/20 rounded-[8px] animate-pulse" />
+          ) : (
+            <p className="text-[40px] font-bold leading-none">{String(starBalance ?? "0")}</p>
+          )}
+          <p className="text-[13px] opacity-70">STAR Tokens</p>
+          <div className="pt-3 border-t border-white/20 flex justify-between text-[13px]">
+            <span className="opacity-70">Lifetime earned</span>
+            <span className="font-semibold">{(rewardsData as any)?.meta?.total ?? "—"}</span>
+          </div>
+        </div>
+
+        {/* Quick links */}
+        <div className="flex gap-3">
+          <Link href="/rewards/referrals" className="flex-1 flex items-center gap-2 bg-surface-container-lowest rounded-[16px] px-4 py-3 border border-outline-variant">
+            <span className="material-symbols-outlined text-primary text-[20px]">group_add</span>
+            <span className="text-[14px] font-semibold text-on-background">Referrals</span>
+          </Link>
+          <Link href="/rewards/history" className="flex-1 flex items-center gap-2 bg-surface-container-lowest rounded-[16px] px-4 py-3 border border-outline-variant">
+            <span className="material-symbols-outlined text-primary text-[20px]">history</span>
+            <span className="text-[14px] font-semibold text-on-background">History</span>
+          </Link>
+        </div>
+
+        {/* Quick Redeem */}
         <div>
-          <SectionTag label="REWARDS" />
-          <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-ibm-plex-mono)] text-ink">STAR Rewards</h1>
-        </div>
-        <div className="pill-tabs">
-          <Link href="/rewards/history" className="pill-tab">Reward History</Link>
-          <Link href="/rewards/campaigns" className="pill-tab">Campaigns</Link>
-          <Link href="/rewards/referrals" className="pill-tab">Referrals</Link>
-          <Link href="/rewards/analytics" className="pill-tab">Analytics</Link>
-        </div>
-      </div>
-
-      {/* Real On-Chain STAR Balance Card */}
-      <div className="space-y-4">
-        <SectionTag label="ON-CHAIN BALANCE" />
-        <StarBalance />
-      </div>
-
-      {/* Stats Card - Backend derived */}
-      <div className="stats-card stats-card-3">
-        <div className="stat-col">
-          <div className="stat-number !text-4xl">{rewardsBalance?.mintedStar?.toString() || "0"}</div>
-          <div className="stat-primary-label">Total STAR Minted</div>
-        </div>
-        <div className="stat-col">
-          <div className="stat-number !text-4xl">{rewardsBalance?.pendingStar?.toString() || "0"}</div>
-          <div className="stat-primary-label">This Month</div>
-        </div>
-        <div className="stat-col">
-          <div className="stat-number !text-4xl">0</div>
-          <div className="stat-primary-label">Redeemed</div>
-        </div>
-      </div>
-
-      {/* Tier Progress */}
-      <div className="space-y-4">
-        <SectionTag label="TIER" />
-        <div className="card-white">
-          <div className="flex items-center justify-between mb-4">
-            <span className="border-[1.5px] border-ink rounded-[50px] px-3 py-1 text-xs font-semibold font-[family-name:var(--font-ibm-plex-mono)] uppercase tracking-wider">
-              Silver Tier
-            </span>
-            <span className="text-sm text-muted font-[family-name:var(--font-ibm-plex-mono)]">500 STAR to Gold</span>
+          <p className="text-[13px] font-semibold text-on-surface-variant mb-3 uppercase tracking-wide">Quick Redeem</p>
+          <div className="grid grid-cols-2 gap-3">
+            {REDEEM_OPTIONS.map((opt) => (
+              <button
+                key={opt.label}
+                className="flex flex-col items-center gap-2 bg-surface-container-lowest border border-outline-variant rounded-[24px] py-5 px-3 active:bg-surface-container transition-colors"
+              >
+                <span className="material-symbols-outlined text-primary text-[28px]">{opt.icon}</span>
+                <span className="text-[13px] font-semibold text-on-background">{opt.label}</span>
+              </button>
+            ))}
           </div>
-          <div className="progress-bar-track">
-            <motion.div
-              className="progress-bar-fill"
-              initial={{ width: 0 }}
-              animate={{ width: "60%" }}
-              transition={{ duration: 0.8, delay: 0.2 }}
-            />
+        </div>
+
+        {/* Recent Rewards */}
+        <div>
+          <p className="text-[13px] font-semibold text-on-surface-variant mb-3 uppercase tracking-wide">Recent Rewards</p>
+          <div className="bg-surface-container-lowest rounded-[24px] overflow-hidden divide-y divide-outline-variant">
+            {rewardsLoading ? (
+              Array(3).fill(0).map((_, i) => (
+                <div key={i} className="p-4">
+                  <div className="animate-pulse bg-surface-container-high rounded-[12px] h-10 w-full" />
+                </div>
+              ))
+            ) : rewards.length === 0 ? (
+              <div className="py-12 flex flex-col items-center gap-2 text-on-surface-variant">
+                <span className="material-symbols-outlined text-[40px]">star_border</span>
+                <p className="text-[14px]">No rewards yet</p>
+              </div>
+            ) : (
+              rewards.map((r: any) => (
+                <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-9 h-9 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
+                    <span className="material-symbols-outlined text-primary text-[18px]">star</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[14px] font-medium text-on-background truncate">{r.reason}</p>
+                    <p className="text-[12px] text-on-surface-variant">{new Date(r.createdAt).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className="text-[14px] font-bold text-primary">+{r.starAmount}</span>
+                    <StatusChip status={r.status} />
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
-
-      {/* Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {metricsLoading ? (
-          Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-[100px] w-full rounded-[20px]" />)
-        ) : (
-          <>
-            <MetricCard title="Earned via Spend" value={metrics?.byReason.SPEND.toString() || "0"} icon={<Star className="w-4 h-4" />} />
-            <MetricCard title="Earned via Referrals" value={metrics?.byReason.REFERRAL.toString() || "0"} icon={<Users className="w-4 h-4" />} />
-            <MetricCard title="Earned via Campaigns" value={metrics?.byReason.CAMPAIGN?.toString() || "0"} icon={<Gift className="w-4 h-4" />} />
-            <MetricCard title="Earned via Merchants" value={metrics?.byReason.MERCHANT?.toString() || "0"} icon={<Star className="w-4 h-4" />} />
-          </>
-        )}
-      </div>
-
-      {/* Refer & Earn */}
-      <div className="card-white">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="icon-box !w-9 !h-9">
-            <Gift className="w-4 h-4" />
-          </div>
-          <h3 className="font-bold font-[family-name:var(--font-ibm-plex-mono)]">Refer & Earn</h3>
-        </div>
-        <p className="text-sm text-muted mb-4">
-          Invite friends to CryptoPay and earn 500 STAR tokens when they make their first payment.
-        </p>
-        <div className="p-3 bg-surface rounded-[12px] border-[1.5px] border-ink font-[family-name:var(--font-ibm-plex-mono)] text-sm text-center mb-4">
-          REF-CRYPTO-2026
-        </div>
-        <Button variant="accent" className="w-full">Copy Link →</Button>
-      </div>
-    </motion.div>
+    </div>
   );
 }

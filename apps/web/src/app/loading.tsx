@@ -1,23 +1,26 @@
 import React from "react";
-import { Skeleton } from "@cryptopay/ui";
 
 export default function Loading() {
   return (
-    <div className="p-8 space-y-8 max-w-7xl mx-auto w-full animate-pulse">
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-1/3 rounded-md" />
-        <Skeleton className="h-4 w-1/2 rounded-md" />
+    <div className="mx-auto w-full max-w-lg animate-pulse space-y-6 p-4">
+      <div className="space-y-3">
+        <div className="h-8 w-1/2 rounded-full bg-surface-container-high" />
+        <div className="h-4 w-2/3 rounded-full bg-surface-container-high" />
       </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Skeleton className="h-40 w-full rounded-xl" />
-        <Skeleton className="h-40 w-full rounded-xl" />
-        <Skeleton className="h-40 w-full rounded-xl" />
-        <Skeleton className="h-40 w-full rounded-xl" />
+
+      <div className="h-40 w-full rounded-[24px] bg-surface-container-high" />
+
+      <div className="grid grid-cols-4 gap-3">
+        <div className="h-20 rounded-[24px] bg-surface-container-high" />
+        <div className="h-20 rounded-[24px] bg-surface-container-high" />
+        <div className="h-20 rounded-[24px] bg-surface-container-high" />
+        <div className="h-20 rounded-[24px] bg-surface-container-high" />
       </div>
-      
-      <div className="mt-8">
-        <Skeleton className="h-96 w-full rounded-xl" />
+
+      <div className="space-y-3">
+        <div className="h-16 w-full rounded-[24px] bg-surface-container-high" />
+        <div className="h-16 w-full rounded-[24px] bg-surface-container-high" />
+        <div className="h-16 w-full rounded-[24px] bg-surface-container-high" />
       </div>
     </div>
   );

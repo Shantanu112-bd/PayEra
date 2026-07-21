@@ -1,198 +1,248 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
+import { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { cryptoPaySdk } from '@cryptopay/sdk'
-import { hasUsdcTrustline, addUsdcTrustline } from '@/lib/trustline'
-import freighterApi from '@stellar/freighter-api'
+import { hasUsdcTrustline, addUsdcTrustline } from '../../../lib/trustline'
+import { useStellarWallet } from '../../../components/providers/StellarWalletProvider'
+import { TopBar } from '../../../components/layout/TopBar'
+import { signTransaction } from '@stellar/freighter-api'
+import { Networks } from '@stellar/stellar-sdk'
 
-const getPublicKey = async () => {
-  const res = await freighterApi.getAddress()
-  if (res.error) throw new Error(res.error)
-  return res.address
-}
+type Step = 'amount' | 'trustline' | 'loading' | 'anchor' | 'polling' | 'done' | 'error'
 
-const signTx = async (xdr: string) => {
-  const res = await freighterApi.signTransaction(xdr, { networkPassphrase: 'Test SDF Network ; September 2015' })
-  if (res.error) throw new Error(res.error)
-  return res.signedTxXdr
-}
+const HORIZON_URL = process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org'
+const PASSPHRASE = Networks.TESTNET
 
 export default function OnRampPage() {
+  const router = useRouter()
+  const { publicKey, balances, refreshBalances, connect } = useStellarWallet()
+  const [step, setStep] = useState<Step>('amount')
   const [amount, setAmount] = useState('')
-  const [step, setStep] = useState<'auth' | 'interactive' | 'confirmed' | 'trustline'>('auth')
-  const [jwtToken, setJwtToken] = useState('')
+  const [error, setError] = useState('')
+  const [statusText, setStatusText] = useState('')
   const [interactiveUrl, setInteractiveUrl] = useState('')
   const [txId, setTxId] = useState('')
-  const [depositInstructions, setDepositInstructions] = useState<any>(null)
-  
-  useEffect(() => {
-    checkTrustline()
-  }, [])
+  const [jwt, setJwt] = useState('')
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const checkTrustline = async () => {
+  useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current) }, [])
+
+  const handleContinue = async () => {
+    if (!publicKey) return
+    setError('')
+    setStep('loading')
     try {
-      const pubKey = await getPublicKey()
-      const hasTrust = await hasUsdcTrustline(pubKey)
-      if (!hasTrust) {
-        setStep('trustline')
-      }
-    } catch (e) {
-      console.error(e)
+      const hasTrust = await hasUsdcTrustline(publicKey)
+      if (!hasTrust) { setStep('trustline'); return }
+      await authenticate()
+    } catch (e: any) {
+      setError(e.message || 'Something went wrong')
+      setStep('error')
     }
   }
 
   const handleAddTrustline = async () => {
+    if (!publicKey) return
+    setError('')
+    setStep('loading')
     try {
-      const pubKey = await getPublicKey()
-      const xdr = await addUsdcTrustline(pubKey)
-      const signedXdrStr = await signTx(xdr)
-      
-      const { Horizon, Transaction } = await import('@stellar/stellar-sdk')
-      const server = new Horizon.Server(
-        process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org'
-      )
-      
-      const tx = new Transaction(signedXdrStr, 'Test SDF Network ; September 2015')
-      await server.submitTransaction(tx)
-      
-      setStep('auth')
-    } catch (e) {
-      console.error(e)
-      alert("Failed to add trustline")
+      const xdr = await addUsdcTrustline(publicKey)
+      const { signedTxXdr: signedTransaction } = await signTransaction(xdr, { networkPassphrase: PASSPHRASE, address: publicKey })
+      const { Horizon, TransactionBuilder } = await import('@stellar/stellar-sdk')
+      const server = new Horizon.Server(HORIZON_URL)
+      await server.submitTransaction(TransactionBuilder.fromXDR(signedTransaction, PASSPHRASE))
+      await authenticate()
+    } catch (e: any) {
+      setError(e.message || 'Failed to add trustline')
+      setStep('error')
     }
   }
 
-  const handleStart = async () => {
-    try {
-      const pubKey = await getPublicKey()
-      const authRes = await cryptoPaySdk.ramps.authenticate(pubKey)
-      const token = authRes.jwtToken
-      setJwtToken(token)
-
-      const depositRes = await cryptoPaySdk.ramps.initiateDeposit({
-        userPublicKey: pubKey,
-        amount,
-        jwtToken: token
-      })
-      setInteractiveUrl(depositRes.interactiveUrl)
-      setTxId(depositRes.transactionId)
-      setStep('interactive')
-    } catch (e) {
-      console.error(e)
-      alert("Failed to initiate deposit")
-    }
+  const authenticate = async () => {
+    if (!publicKey) return
+    setStatusText('Authenticating…')
+    const { jwtToken } = await cryptoPaySdk.ramps.authenticate(publicKey)
+    setJwt(jwtToken)
+    const { interactiveUrl: url, transactionId } = await cryptoPaySdk.ramps.initiateDeposit({
+      userPublicKey: publicKey,
+      amount,
+      jwtToken,
+    })
+    setInteractiveUrl(url)
+    setTxId(transactionId)
+    setStep('anchor')
   }
 
-  const closeIframe = () => {
-    setInteractiveUrl('')
-    pollStatus()
-  }
-
-  const pollStatus = async () => {
-    if (!txId || !jwtToken) return
-    try {
-      const status = await cryptoPaySdk.ramps.getTransactionStatus({ id: txId, jwt: jwtToken })
-      if (status.status === 'completed') {
-        setStep('confirmed')
-      } else if (status.status === 'pending_user_transfer_start') {
-        setDepositInstructions({ memo: status.memo, account: status.withdrawAnchorAccount })
-        setStep('confirmed')
-      } else {
-        setTimeout(pollStatus, 3000)
+  const startPolling = (id: string, token: string) => {
+    setStep('polling')
+    setStatusText('Waiting for deposit confirmation…')
+    const poll = async () => {
+      try {
+        const { status } = await cryptoPaySdk.ramps.getTransactionStatus({ id, jwt: token })
+        setStatusText(`Status: ${status}`)
+        if (status === 'completed') {
+          await refreshBalances()
+          setStep('done')
+        } else {
+          pollRef.current = setTimeout(poll, 5000)
+        }
+      } catch {
+        pollRef.current = setTimeout(poll, 5000)
       }
-    } catch (e) {
-      console.error(e)
     }
+    poll()
+  }
+
+  const handleIframeDone = () => {
+    setInteractiveUrl('')
+    startPolling(txId, jwt)
+  }
+
+  if (!publicKey) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <TopBar title="Deposit" backHref="/wallet" />
+        <div className="flex-1 flex flex-col items-center justify-center px-[20px] gap-4 text-center">
+          <span className="material-symbols-outlined text-5xl text-on-surface-variant">account_balance_wallet</span>
+          <p className="text-on-surface-variant text-sm">Connect your wallet to deposit</p>
+          <button onClick={connect} className="bg-primary text-on-primary font-semibold px-8 py-3 rounded-full">
+            Connect Wallet
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="max-w-md mx-auto p-4 space-y-6">
-      <div className="flex items-center space-x-3">
-        <Link href="/wallet" className="text-gray-500 hover:text-black">← Back</Link>
-        <h1 className="text-xl font-bold">Add USDC</h1>
-      </div>
+    <div className="min-h-screen bg-background flex flex-col pb-24">
+      <TopBar title="Deposit" backHref="/wallet" />
 
-      <div className="text-sm text-gray-500">
-        Step: {step === 'trustline' ? 'Setup' : step === 'auth' ? '1. Authenticate' : step === 'interactive' ? '2. Choose Location' : '3. Confirmed'}
-      </div>
+      <div className="flex-1 px-[20px] pt-4 space-y-4">
 
-      {step === 'trustline' && (
-        <div className="bg-orange-50 p-4 rounded-xl border border-orange-200">
-          <h3 className="font-bold text-orange-800">⚠️ USDC Trustline Required</h3>
-          <p className="text-sm text-orange-600 mt-1 mb-4">Your wallet needs a USDC trustline before receiving USDC.</p>
-          <button onClick={handleAddTrustline} className="w-full bg-orange-500 text-white p-3 rounded-lg font-bold">
-            Add Trustline →
-          </button>
-        </div>
-      )}
-
-      {step === 'auth' && (
-        <>
-          <div className="bg-gray-50 p-4 rounded-xl">
-            <div className="text-sm text-gray-500">Current Balance</div>
-            <div className="text-2xl font-bold">0 USDC</div>
-            <div className="text-xs text-gray-400 truncate mt-1">Testnet USDC: GBBD47...</div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">How much USDC do you want to add?</label>
-            <div className="relative">
-              <span className="absolute left-3 top-3 text-gray-500">$</span>
-              <input 
-                type="number" 
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="w-full border rounded-lg p-3 pl-8" 
-                placeholder="0.00"
-              />
-              <span className="absolute right-3 top-3 text-gray-500">USDC</span>
+        {step === 'amount' && (
+          <>
+            <div className="bg-primary rounded-[24px] p-5 text-on-primary">
+              <div className="text-xs font-semibold opacity-70 mb-1">USDC Balance</div>
+              <div className="text-3xl font-bold">{balances.USDC} <span className="text-lg opacity-70">USDC</span></div>
             </div>
-          </div>
 
-          <div className="bg-blue-50 p-4 rounded-xl text-sm text-blue-800 space-y-2">
-            <p>• You'll pay cash at any MoneyGram location</p>
-            <p>• USDC will arrive in your Freighter wallet</p>
-            <p>• Available at 500,000+ locations globally</p>
-          </div>
-
-          <button onClick={handleStart} className="w-full bg-lime-400 text-black p-4 rounded-xl font-bold">
-            GET STARTED →
-          </button>
-        </>
-      )}
-
-      {interactiveUrl && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center">
-          <div className="w-full max-w-lg h-[600px] bg-white rounded-[20px] overflow-hidden relative">
-            <button onClick={closeIframe} className="absolute top-3 right-3 z-10 w-8 h-8 bg-black/10 rounded-full flex items-center justify-center">✕</button>
-            <iframe
-              src={interactiveUrl}
-              className="w-full h-full border-0"
-              title="MoneyGram USDC On-Ramp"
-            />
-          </div>
-        </div>
-      )}
-
-      {step === 'confirmed' && (
-        <div className="text-center py-10 space-y-4">
-          <div className="text-4xl">✅</div>
-          <h2 className="text-2xl font-bold">Confirmed!</h2>
-          <p className="text-gray-500">Your USDC will arrive shortly after cash payment.</p>
-          {depositInstructions && (
-            <div className="bg-gray-50 p-4 rounded-xl text-left text-sm mt-4">
-              <p><strong>Memo:</strong> {depositInstructions.memo}</p>
-              <p><strong>Account:</strong> {depositInstructions.account}</p>
+            <div className="bg-surface-container-lowest rounded-[24px] p-5 space-y-4">
+              <div className="text-sm font-semibold text-on-surface">Amount (USD)</div>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant font-semibold">$</span>
+                <input
+                  type="number"
+                  value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-surface-container rounded-[16px] pl-8 pr-16 py-4 text-on-surface text-lg font-semibold outline-none focus:ring-2 focus:ring-primary"
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">USDC</span>
+              </div>
+              <div className="flex gap-2">
+                {['50', '100', '200'].map(v => (
+                  <button key={v} onClick={() => setAmount(v)}
+                    className={`flex-1 py-2 rounded-full text-sm font-semibold border border-outline-variant transition-colors ${amount === v ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container text-on-surface'}`}>
+                    ${v}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
-          <Link href="/wallet">
-            <button className="w-full bg-black text-white p-4 rounded-xl font-bold mt-4">
-              Return to Wallet
+
+            <div className="bg-secondary-container rounded-[24px] p-4 space-y-2">
+              <div className="flex items-center gap-2 text-sm text-on-surface">
+                <span className="material-symbols-outlined text-primary text-[18px]">storefront</span>
+                Pay cash at any MoneyGram location
+              </div>
+              <div className="flex items-center gap-2 text-sm text-on-surface">
+                <span className="material-symbols-outlined text-primary text-[18px]">public</span>
+                500,000+ locations globally
+              </div>
+            </div>
+
+            <button
+              onClick={handleContinue}
+              disabled={!amount || parseFloat(amount) <= 0}
+              className="w-full bg-primary text-on-primary font-semibold py-4 rounded-full disabled:opacity-40">
+              Continue
             </button>
-          </Link>
-        </div>
-      )}
+          </>
+        )}
+
+        {step === 'trustline' && (
+          <div className="bg-surface-container-lowest rounded-[24px] p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-primary text-3xl">add_link</span>
+              <div>
+                <div className="font-semibold text-on-surface">USDC Trustline Required</div>
+                <div className="text-sm text-on-surface-variant">Your wallet needs a USDC trustline to receive deposits.</div>
+              </div>
+            </div>
+            <button onClick={handleAddTrustline} className="w-full bg-primary text-on-primary font-semibold py-4 rounded-full">
+              Add USDC Trustline
+            </button>
+          </div>
+        )}
+
+        {step === 'loading' && (
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <p className="text-on-surface-variant text-sm">{statusText || 'Please wait…'}</p>
+          </div>
+        )}
+
+        {step === 'anchor' && interactiveUrl && (
+          <div className="space-y-3">
+            <p className="text-sm text-on-surface-variant text-center">Complete your deposit in the window below</p>
+            <div className="rounded-[24px] overflow-hidden h-[500px] bg-surface-container">
+              <iframe src={interactiveUrl} className="w-full h-full border-0" title="MoneyGram Deposit" />
+            </div>
+            <button onClick={handleIframeDone} className="w-full bg-primary-container text-on-primary-container font-semibold py-3 rounded-full text-sm">
+              I've completed the deposit
+            </button>
+          </div>
+        )}
+
+        {step === 'polling' && (
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <p className="text-on-surface-variant text-sm">{statusText}</p>
+          </div>
+        )}
+
+        {step === 'done' && (
+          <div className="flex flex-col items-center justify-center py-16 gap-5 text-center">
+            <div className="w-20 h-20 rounded-full bg-primary-container flex items-center justify-center">
+              <span className="material-symbols-outlined text-on-primary-container text-4xl">check_circle</span>
+            </div>
+            <div>
+              <div className="text-xl font-bold text-on-surface">Deposit complete</div>
+              <div className="text-sm text-on-surface-variant mt-1">Your USDC balance has been updated</div>
+            </div>
+            <div className="bg-surface-container rounded-[16px] px-6 py-3 text-on-surface font-bold text-lg">
+              {balances.USDC} USDC
+            </div>
+            <button onClick={() => router.push('/wallet')} className="w-full bg-primary text-on-primary font-semibold py-4 rounded-full">
+              Done
+            </button>
+          </div>
+        )}
+
+        {step === 'error' && (
+          <div className="bg-error-container rounded-[24px] p-5 space-y-4">
+            <div className="flex items-center gap-2 text-error">
+              <span className="material-symbols-outlined">error</span>
+              <span className="font-semibold">Something went wrong</span>
+            </div>
+            <p className="text-sm text-error">{error}</p>
+            <button onClick={() => { setStep('amount'); setError('') }} className="w-full bg-primary text-on-primary font-semibold py-3 rounded-full">
+              Try Again
+            </button>
+          </div>
+        )}
+
+      </div>
     </div>
   )
 }

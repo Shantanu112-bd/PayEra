@@ -3,8 +3,13 @@
 import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { Loader2, Save, Store, Mail, MapPin } from "lucide-react";
-import { MerchantStatus } from "@/components/stellar/MerchantStatus";
+import { TopBar } from "../../../components/layout/TopBar";
+import { MerchantStatus } from "../../../components/stellar/MerchantStatus";
+
+const inputCls =
+  "w-full bg-surface-container rounded-[14px] px-4 py-3 text-[15px] text-on-background outline-none border border-outline-variant focus:border-primary";
+const disabledInputCls =
+  "w-full bg-surface-container rounded-[14px] px-4 py-3 text-[15px] text-on-surface-variant border border-outline-variant cursor-not-allowed";
 
 export default function MerchantProfilePage() {
   const queryClient = useQueryClient();
@@ -46,16 +51,29 @@ export default function MerchantProfilePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["my-merchant"] });
-      alert("Profile updated successfully!");
-    }
+    },
   });
 
   if (isLoading) {
-    return <div className="p-8 max-w-3xl mx-auto flex justify-center"><Loader2 className="w-8 h-8 animate-spin" /></div>;
+    return (
+      <div className="min-h-screen bg-background">
+        <TopBar backHref="/merchant" title="Merchant Settings" />
+        <div className="flex justify-center pt-20">
+          <span className="material-symbols-outlined animate-spin text-on-surface-variant">progress_activity</span>
+        </div>
+      </div>
+    );
   }
 
   if (!merchant) {
-    return <div className="p-8 max-w-3xl mx-auto text-center text-gray-500">Merchant profile not found. Are you registered?</div>;
+    return (
+      <div className="min-h-screen bg-background">
+        <TopBar backHref="/merchant" title="Merchant Settings" />
+        <p className="px-[20px] pt-8 text-center text-on-surface-variant">
+          Merchant profile not found. Are you registered?
+        </p>
+      </div>
+    );
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -68,118 +86,86 @@ export default function MerchantProfilePage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4 space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Merchant Settings</h1>
-        <p className="text-gray-500 mt-1">Manage your business profile and compliance status</p>
-      </div>
+    <div className="min-h-screen bg-background pb-24">
+      <TopBar backHref="/merchant" title="Merchant Settings" />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          <form onSubmit={handleSubmit} className="bg-white border-[1.5px] border-black rounded-2xl p-6 space-y-6 shadow-sm">
-            <h2 className="text-lg font-bold flex items-center gap-2">
-              <Store className="w-5 h-5" /> Business Information
-            </h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Display Name</label>
-                <input
-                  name="displayName"
-                  value={formData.displayName}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-black focus:border-transparent outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Legal Name</label>
-                <input
-                  name="legalName"
-                  value={formData.legalName}
-                  onChange={handleChange}
-                  disabled
-                  className="w-full border border-gray-200 bg-gray-50 text-gray-500 rounded-lg px-3 py-2 cursor-not-allowed"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Default UPI VPA</label>
-                <input
-                  name="defaultUpiVpa"
-                  value={formData.defaultUpiVpa}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-black outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Category</label>
-                <input
-                  name="category"
-                  value={formData.category}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-black outline-none"
-                />
-              </div>
-            </div>
-
-            <h2 className="text-lg font-bold flex items-center gap-2 pt-4 border-t border-gray-100">
-              <MapPin className="w-5 h-5" /> Location
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">City</label>
-                <input
-                  name="city"
-                  value={formData.city}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-black outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">State</label>
-                <input
-                  name="state"
-                  value={formData.state}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-black outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Country</label>
-                <input
-                  name="country"
-                  value={formData.country}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-black outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Postal Code</label>
-                <input
-                  name="postalCode"
-                  value={formData.postalCode}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-black outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="pt-4 flex justify-end">
-              <button
-                type="submit"
-                disabled={updateMutation.isPending}
-                className="px-6 py-2.5 bg-black text-white rounded-xl font-medium hover:bg-gray-800 flex items-center gap-2 disabled:opacity-50"
-              >
-                {updateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save Changes
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div className="space-y-6">
+      <form onSubmit={handleSubmit} className="px-[20px] pt-1 space-y-5">
+        {/* On-chain status */}
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-[24px] p-5">
+          <p className="text-[13px] font-semibold text-on-surface-variant uppercase tracking-wide mb-3">
+            Compliance Status
+          </p>
           <MerchantStatus merchantId={merchant.id} />
         </div>
-      </div>
+
+        {/* Business info */}
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-[24px] p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary text-[20px]">storefront</span>
+            <p className="text-[16px] font-bold text-on-background">Business Information</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-[13px] font-semibold text-on-surface-variant">Display Name</label>
+            <input name="displayName" value={formData.displayName} onChange={handleChange} className={inputCls} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-[13px] font-semibold text-on-surface-variant">Legal Name</label>
+            <input name="legalName" value={formData.legalName} disabled className={disabledInputCls} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-[13px] font-semibold text-on-surface-variant">Default UPI VPA</label>
+            <input name="defaultUpiVpa" value={formData.defaultUpiVpa} onChange={handleChange} className={inputCls} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-[13px] font-semibold text-on-surface-variant">Category</label>
+            <input name="category" value={formData.category} onChange={handleChange} className={inputCls} />
+          </div>
+        </div>
+
+        {/* Location */}
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-[24px] p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary text-[20px]">location_on</span>
+            <p className="text-[16px] font-bold text-on-background">Location</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="block text-[13px] font-semibold text-on-surface-variant">City</label>
+              <input name="city" value={formData.city} onChange={handleChange} className={inputCls} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-[13px] font-semibold text-on-surface-variant">State</label>
+              <input name="state" value={formData.state} onChange={handleChange} className={inputCls} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-[13px] font-semibold text-on-surface-variant">Country</label>
+              <input name="country" value={formData.country} onChange={handleChange} className={inputCls} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-[13px] font-semibold text-on-surface-variant">Postal Code</label>
+              <input name="postalCode" value={formData.postalCode} onChange={handleChange} className={inputCls} />
+            </div>
+          </div>
+        </div>
+
+        {updateMutation.isSuccess && <p className="text-primary text-[13px]">Profile updated successfully.</p>}
+        {updateMutation.isError && (
+          <p className="text-error text-[13px]">{(updateMutation.error as Error).message || "Failed to update."}</p>
+        )}
+
+        <button
+          type="submit"
+          disabled={updateMutation.isPending}
+          className="w-full py-3.5 rounded-full bg-primary text-on-primary font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
+        >
+          <span className="material-symbols-outlined text-[20px]">
+            {updateMutation.isPending ? "progress_activity" : "save"}
+          </span>
+          {updateMutation.isPending ? "Saving…" : "Save Changes"}
+        </button>
+      </form>
     </div>
   );
 }

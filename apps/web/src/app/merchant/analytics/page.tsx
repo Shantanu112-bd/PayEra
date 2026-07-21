@@ -3,145 +3,123 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { Skeleton, MetricCard, ChartCard, LineChart } from "@cryptopay/ui";
-import { Loader2, TrendingUp, Users, Activity, BarChart3 } from "lucide-react";
+import { useMerchant } from "../../../hooks/useMerchant";
+import { TopBar } from "../../../components/layout/TopBar";
+
+function inr(paise: number | undefined) {
+  return `₹${(Number(paise ?? 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
 
 export default function MerchantAnalyticsPage() {
-  const { data: merchant, isLoading: isMerchantLoading } = useQuery({
-    queryKey: ["my-merchant"],
-    queryFn: () => cryptoPaySdk.merchants.getMyMerchant(),
+  const { merchant, merchantId, isLoading: merchantLoading } = useMerchant();
+
+  const { data: analytics, isLoading } = useQuery({
+    queryKey: ["merchant-analytics", merchantId],
+    queryFn: () => cryptoPaySdk.merchants.getMerchantAnalytics(merchantId!),
+    enabled: !!merchantId,
   });
 
-  const { data: analytics, isLoading: isAnalyticsLoading } = useQuery({
-    queryKey: ["merchant-analytics", merchant?.id],
-    queryFn: () => cryptoPaySdk.merchants.getMerchantAnalytics(merchant!.id),
-    enabled: !!merchant?.id,
-  });
+  const timeline: any[] = analytics?.revenueTimeline ?? [];
+  const maxVol = Math.max(1, ...timeline.map((d) => Number(d.revenue ?? d.volume ?? 0)));
+  const railEntries = Object.entries(analytics?.volumeByRail ?? {}) as [string, any][];
 
-  if (isMerchantLoading) {
+  if (merchantLoading) {
     return (
-      <div className="space-y-6 animate-in fade-in max-w-6xl mx-auto">
-        <Skeleton className="h-10 w-48" />
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Skeleton className="h-32 w-full rounded-xl" />
-          <Skeleton className="h-32 w-full rounded-xl" />
-          <Skeleton className="h-32 w-full rounded-xl" />
-          <Skeleton className="h-32 w-full rounded-xl" />
+      <div className="min-h-screen bg-background">
+        <TopBar backHref="/merchant" title="Analytics" />
+        <div className="px-[20px] grid grid-cols-2 gap-3 pt-2">
+          {Array(4).fill(0).map((_, i) => (
+            <div key={i} className="animate-pulse bg-surface-container-high rounded-[20px] h-24" />
+          ))}
         </div>
       </div>
     );
   }
 
-  if (!merchant) {
-    return <div className="text-muted-foreground p-8">No merchant profile found.</div>;
+  if (!merchantId) {
+    return (
+      <div className="min-h-screen bg-background">
+        <TopBar backHref="/merchant" title="Analytics" />
+        <div className="px-[20px] pt-16 flex flex-col items-center gap-2 text-on-surface-variant">
+          <span className="material-symbols-outlined text-[48px]">insights</span>
+          <p className="text-[14px]">No merchant profile</p>
+        </div>
+      </div>
+    );
   }
 
-  const timelineData = analytics?.revenueTimeline || [];
+  const metrics = [
+    { label: "Total Volume", value: inr(analytics?.totalVolumePaise), icon: "trending_up" },
+    { label: "Transactions", value: String(analytics?.transactionCount ?? 0), icon: "receipt_long" },
+    { label: "Avg Ticket", value: inr(analytics?.averageTicketSizePaise), icon: "sell" },
+    { label: "Customers", value: String(analytics?.uniqueCustomers ?? 0), icon: "group" },
+  ];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 max-w-6xl mx-auto pb-12">
-      <div className="border-b border-white/10 pb-6">
-        <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
-          <BarChart3 className="w-8 h-8 text-emerald-400" />
-          Analytics Dashboard
-        </h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Advanced metrics, transaction volume, and performance over time.
-        </p>
-      </div>
+    <div className="min-h-screen bg-background pb-24">
+      <TopBar backHref="/merchant" title={`${merchant?.displayName || "Merchant"} · Analytics`} />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {isAnalyticsLoading ? (
-          <>
-            <Skeleton className="h-32 w-full rounded-xl" />
-            <Skeleton className="h-32 w-full rounded-xl" />
-            <Skeleton className="h-32 w-full rounded-xl" />
-            <Skeleton className="h-32 w-full rounded-xl" />
-          </>
-        ) : (
-          <>
-            <MetricCard 
-              title="Total Volume (INR)" 
-              value={analytics ? `₹${(analytics.totalVolumePaise / 100).toLocaleString()}` : "—"}
-              icon={<TrendingUp className="w-5 h-5 text-emerald-400" />}
-            />
-            <MetricCard 
-              title="Total Transactions" 
-              value={analytics?.transactionCount?.toString() || "0"}
-              icon={<Activity className="w-5 h-5 text-blue-400" />}
-            />
-            <MetricCard 
-              title="Avg Ticket Size" 
-              value={analytics ? `₹${(analytics.averageTicketSizePaise / 100).toLocaleString()}` : "—"}
-            />
-            <MetricCard 
-              title="Unique Customers" 
-              value={analytics?.uniqueCustomers?.toString() || "0"}
-              icon={<Users className="w-5 h-5 text-amber-400" />}
-            />
-          </>
-        )}
-      </div>
+      <div className="px-[20px] space-y-5 pt-1">
+        {/* Metrics */}
+        <div className="grid grid-cols-2 gap-3">
+          {metrics.map((m) => (
+            <div key={m.label} className="bg-surface-container-lowest border border-outline-variant rounded-[20px] p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="material-symbols-outlined text-primary text-[20px]">{m.icon}</span>
+                <span className="text-[12px] text-on-surface-variant">{m.label}</span>
+              </div>
+              {isLoading ? (
+                <div className="h-7 w-20 animate-pulse bg-surface-container-high rounded-[8px]" />
+              ) : (
+                <p className="text-[22px] font-bold text-on-background leading-none">{m.value}</p>
+              )}
+            </div>
+          ))}
+        </div>
 
-      <ChartCard 
-        title="Revenue Timeline" 
-        description="Daily transaction volume over the last 30 days"
-      >
-        {isAnalyticsLoading ? (
-          <Skeleton className="h-[300px] w-full" />
-        ) : timelineData.length > 0 ? (
-          <LineChart 
-            data={timelineData} 
-            index="date" 
-            categories={["revenue"]} 
-            colors={["#10b981"]}
-            valueFormatter={(val) => `₹${(val / 100).toLocaleString()}`}
-          />
-        ) : (
-          <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-dashed border-white/10 rounded-lg">
-            No timeline data available.
-          </div>
-        )}
-      </ChartCard>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-[#111111] border border-white/10 rounded-xl p-6">
-          <h3 className="font-semibold text-white mb-4">Payment Methods</h3>
-          {isAnalyticsLoading ? (
-            <div className="space-y-4">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-full" />
+        {/* Revenue timeline */}
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-[24px] p-5">
+          <p className="text-[13px] font-semibold text-on-surface-variant uppercase tracking-wide mb-4">Revenue Timeline</p>
+          {isLoading ? (
+            <div className="h-40 animate-pulse bg-surface-container-high rounded-[12px]" />
+          ) : timeline.length === 0 ? (
+            <div className="h-40 flex items-center justify-center text-on-surface-variant text-[13px]">
+              No timeline data
             </div>
           ) : (
-            <div className="space-y-4">
-              {Object.entries(analytics?.volumeByRail || {}).map(([rail, volume]: [string, any]) => (
-                <div key={rail} className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">{rail}</span>
-                  <span className="font-bold text-white">₹{(volume / 100).toLocaleString()}</span>
-                </div>
-              ))}
-              {Object.keys(analytics?.volumeByRail || {}).length === 0 && (
-                <div className="text-sm text-muted-foreground">No payment data yet.</div>
-              )}
+            <div className="flex items-end gap-1 h-40">
+              {timeline.slice(-30).map((d, i) => {
+                const v = Number(d.revenue ?? d.volume ?? 0);
+                return (
+                  <div
+                    key={i}
+                    className="flex-1 bg-primary/80 rounded-t-[3px] min-h-[2px]"
+                    style={{ height: `${(v / maxVol) * 100}%` }}
+                    title={`${d.date}: ${inr(v)}`}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
-        
-        <div className="bg-[#111111] border border-white/10 rounded-xl p-6">
-          <h3 className="font-semibold text-white mb-4">Campaign Performance</h3>
-          {isAnalyticsLoading ? (
-            <div className="space-y-4">
-              <Skeleton className="h-4 w-full" />
+
+        {/* Payment methods */}
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-[24px] p-5">
+          <p className="text-[13px] font-semibold text-on-surface-variant uppercase tracking-wide mb-4">Payment Methods</p>
+          {isLoading ? (
+            <div className="space-y-3">
+              {Array(2).fill(0).map((_, i) => <div key={i} className="h-5 animate-pulse bg-surface-container-high rounded-[6px]" />)}
             </div>
+          ) : railEntries.length === 0 ? (
+            <p className="text-[13px] text-on-surface-variant">No payment data yet</p>
           ) : (
-            <div className="space-y-4">
-               {analytics?.campaignsCount > 0 ? (
-                 <div className="text-sm text-muted-foreground">
-                   Active Campaigns: <span className="text-white font-bold">{analytics.campaignsCount}</span>
-                 </div>
-               ) : (
-                 <div className="text-sm text-muted-foreground">No active campaigns.</div>
-               )}
+            <div className="space-y-3">
+              {railEntries.map(([rail, volume]) => (
+                <div key={rail} className="flex justify-between items-center">
+                  <span className="text-[14px] text-on-surface-variant">{rail}</span>
+                  <span className="text-[14px] font-bold text-on-background">{inr(volume)}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>

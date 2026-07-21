@@ -1,8 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, Code, Webhook, RefreshCcw, CheckCircle, AlertTriangle } from "lucide-react";
-import Link from "next/link";
+import { TopBar } from "../../../../components/layout/TopBar";
 
 const MOCK_WEBHOOKS = [
   {
@@ -46,84 +45,72 @@ const MOCK_WEBHOOKS = [
     attempts: 5,
     lastAttemptAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
     error: "502 Bad Gateway",
-  }
+  },
 ];
 
 export default function WebhookDebuggerPage() {
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto pb-12">
-      <div className="flex items-center justify-between border-b border-white/10 pb-6">
-        <div className="flex items-center gap-4">
-          <Link href="/merchant" className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-              <Code className="w-6 h-6 text-indigo-400" />
-              Developer Hub
-            </h1>
-            <p className="text-muted-foreground mt-1 text-sm">Monitor webhook deliveries and API activity.</p>
-          </div>
-        </div>
-        <div className="text-xs text-amber-500 bg-amber-500/10 px-3 py-1.5 rounded border border-amber-500/20 font-medium">
-          MOCK DATA: Backend missing Outbox/Webhook support
-        </div>
-      </div>
+    <div className="min-h-screen bg-background pb-24">
+      <TopBar backHref="/merchant" title="Developer Hub" />
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="md:col-span-1 space-y-2">
-          <div className="bg-white/10 text-white font-medium px-4 py-2 rounded-lg flex items-center gap-2">
-            <Webhook className="w-4 h-4" /> Webhooks
-          </div>
-          <div className="text-muted-foreground hover:bg-white/5 hover:text-white transition-colors cursor-pointer px-4 py-2 rounded-lg flex items-center gap-2">
-            API Keys
-          </div>
+      <div className="px-[20px] pt-1 space-y-4">
+        <p className="text-[14px] text-on-surface-variant">Monitor webhook deliveries and API activity.</p>
+
+        <div className="bg-secondary-container rounded-[16px] p-4 flex gap-3">
+          <span className="material-symbols-outlined text-primary text-[20px] shrink-0">info</span>
+          <p className="text-[13px] text-on-surface-variant">
+            Sample data — backend webhook/outbox delivery is not yet wired up.
+          </p>
         </div>
 
-        <div className="md:col-span-3 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-white">Recent Webhook Deliveries</h2>
-            <button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-white transition-colors">
-              <RefreshCcw className="w-4 h-4" /> Refresh
-            </button>
-          </div>
+        <p className="text-[13px] font-semibold text-on-surface-variant uppercase tracking-wide">
+          Recent Webhook Deliveries
+        </p>
 
-          <div className="bg-[#111111] border border-white/10 rounded-xl overflow-hidden divide-y divide-white/5">
-            {MOCK_WEBHOOKS.map((wh) => (
-              <div key={wh.id} className="p-4 space-y-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    {wh.status === "PROCESSED" ? (
-                      <CheckCircle className="w-5 h-5 text-emerald-500" />
-                    ) : (
-                      <AlertTriangle className="w-5 h-5 text-red-500" />
-                    )}
-                    <div>
-                      <div className="font-mono text-sm text-white font-bold">{wh.type}</div>
-                      <div className="text-xs text-muted-foreground font-mono mt-1">{wh.id}</div>
+        <div className="space-y-3">
+          {MOCK_WEBHOOKS.map((wh) => {
+            const ok = wh.status === "PROCESSED";
+            return (
+              <div
+                key={wh.id}
+                className="bg-surface-container-lowest border border-outline-variant rounded-[20px] p-4 space-y-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`material-symbols-outlined text-[20px] ${ok ? "text-primary" : "text-error"}`}>
+                      {ok ? "check_circle" : "error"}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[14px] font-mono font-bold text-on-background truncate">{wh.type}</p>
+                      <p className="text-[11px] font-mono text-on-surface-variant truncate">{wh.id}</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className={`px-2 py-1 rounded text-[10px] font-bold border ${wh.status === 'PROCESSED' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
-                      {wh.status}
-                    </span>
-                    <div className="text-xs text-muted-foreground mt-1">{new Date(wh.lastAttemptAt).toLocaleString()}</div>
-                  </div>
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-1 rounded-full shrink-0 ${
+                      ok ? "bg-secondary-container text-primary" : "bg-error-container text-error"
+                    }`}
+                  >
+                    {wh.status}
+                  </span>
                 </div>
 
-                <div className="bg-black/50 border border-white/5 rounded-lg p-3 overflow-x-auto text-xs font-mono text-gray-300">
-                  <div className="mb-2 text-muted-foreground">POST {wh.url}</div>
-                  <pre>{JSON.stringify(wh.payload, null, 2)}</pre>
+                <div className="bg-surface-container rounded-[12px] p-3 overflow-x-auto">
+                  <p className="text-[11px] font-mono text-on-surface-variant mb-1">POST {wh.url}</p>
+                  <pre className="text-[11px] font-mono text-on-background whitespace-pre-wrap break-all">
+                    {JSON.stringify(wh.payload, null, 2)}
+                  </pre>
                 </div>
-                
+
                 {wh.error && (
-                  <div className="text-xs text-red-400 font-mono bg-red-500/10 border border-red-500/20 rounded p-2">
-                    Failed Response: {wh.error} (Attempt {wh.attempts})
-                  </div>
+                  <p className="text-[12px] font-mono text-error bg-error-container rounded-[10px] p-2">
+                    Failed: {wh.error} (Attempt {wh.attempts})
+                  </p>
                 )}
+
+                <p className="text-[11px] text-on-surface-variant">{new Date(wh.lastAttemptAt).toLocaleString()}</p>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       </div>
     </div>

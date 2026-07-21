@@ -1,9 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { Download, FileText, Loader2 } from "lucide-react";
+import { TopBar } from "../../../components/layout/TopBar";
 
 export default function TaxReportPage() {
   const [year, setYear] = useState(new Date().getFullYear().toString());
@@ -15,17 +14,18 @@ export default function TaxReportPage() {
     setError(null);
     try {
       const data = await cryptoPaySdk.transactions.getTaxReport(year);
-      
-      // In a real implementation, this might return a CSV string or a Blob URL
-      // Here we handle a basic object/array conversion to CSV
-      const csvContent = "data:text/csv;charset=utf-8," 
-        + "Date,Description,Amount,Status,Rail\n"
-        + (Array.isArray(data) ? data.map(row => `${row.date},${row.description},${row.amount},${row.status},${row.rail}`).join("\n") : "Mock,Tax,Data,For,Year");
-      
+
+      const csvContent =
+        "data:text/csv;charset=utf-8," +
+        "Date,Description,Amount,Status,Rail\n" +
+        (Array.isArray(data)
+          ? data.map((row) => `${row.date},${row.description},${row.amount},${row.status},${row.rail}`).join("\n")
+          : "Mock,Tax,Data,For,Year");
+
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
       link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `CryptoPay_TaxReport_${year}.csv`);
+      link.setAttribute("download", `Payra_TaxReport_${year}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -37,56 +37,66 @@ export default function TaxReportPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto py-12 px-4 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Tax Reports</h1>
-        <p className="text-gray-500 mt-2">Generate and download your annual transaction history for tax purposes.</p>
-      </div>
+    <div className="min-h-screen bg-background pb-24">
+      <TopBar backHref="/profile" title="Tax Reports" />
 
-      <div className="bg-white border-[1.5px] border-black rounded-2xl p-8 shadow-sm">
-        <div className="flex flex-col md:flex-row gap-6 items-start md:items-center justify-between">
-          <div className="space-y-2 flex-1">
-            <h2 className="text-lg font-bold flex items-center gap-2">
-              <FileText className="w-5 h-5 text-indigo-600" />
-              Annual Transaction Summary
-            </h2>
-            <p className="text-sm text-gray-500 max-w-sm">
-              Includes all on-chain rewards, merchant settlements, and conversions for the selected financial year.
-            </p>
+      <div className="px-[20px] pt-1 space-y-5">
+        <p className="text-[14px] text-on-surface-variant">
+          Generate and download your annual transaction history for tax purposes.
+        </p>
+
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-[24px] p-6 space-y-5">
+          <div className="flex items-start gap-3">
+            <div className="w-11 h-11 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-primary text-[22px]">description</span>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[16px] font-bold text-on-background">Annual Transaction Summary</p>
+              <p className="text-[13px] text-on-surface-variant mt-1">
+                Includes all on-chain rewards, merchant settlements, and conversions for the selected financial year.
+              </p>
+            </div>
           </div>
-          
-          <div className="flex flex-col gap-3 min-w-[200px]">
-            <select
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 font-medium outline-none focus:ring-2 focus:ring-black"
-            >
-              {[0, 1, 2, 3].map(offset => {
-                const y = (new Date().getFullYear() - offset).toString();
-                return <option key={y} value={y}>{y}</option>;
-              })}
-            </select>
-            
+
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="block text-[13px] font-semibold text-on-surface-variant">Financial Year</label>
+              <select
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+                className="w-full bg-surface-container rounded-[14px] px-4 py-3 text-[15px] font-medium text-on-background outline-none border border-outline-variant focus:border-primary"
+              >
+                {[0, 1, 2, 3].map((offset) => {
+                  const y = (new Date().getFullYear() - offset).toString();
+                  return (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
             <button
               onClick={handleDownload}
               disabled={isLoading}
-              className="w-full px-4 py-2.5 bg-black text-white rounded-lg font-medium hover:bg-gray-800 flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-3.5 rounded-full bg-primary text-on-primary font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
             >
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              Download CSV
+              <span className="material-symbols-outlined text-[20px]">{isLoading ? "progress_activity" : "download"}</span>
+              {isLoading ? "Preparing…" : "Download CSV"}
             </button>
           </div>
+
+          {error && <p className="text-error text-[13px]">{error}</p>}
         </div>
-        
-        {error && (
-          <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-md text-sm border border-red-200">
-            {error}
-          </div>
-        )}
-      </div>
-      
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
-        <strong>Note:</strong> This report is provided for informational purposes only and does not constitute formal tax advice. Please consult with a tax professional regarding your specific situation.
+
+        <div className="bg-secondary-container rounded-[16px] p-4 flex gap-3">
+          <span className="material-symbols-outlined text-primary text-[20px] shrink-0">info</span>
+          <p className="text-[13px] text-on-surface-variant">
+            This report is for informational purposes only and does not constitute formal tax advice. Please consult a
+            tax professional regarding your specific situation.
+          </p>
+        </div>
       </div>
     </div>
   );

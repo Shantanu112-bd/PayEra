@@ -1,22 +1,21 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, Play, Pause, CheckCircle } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { Skeleton, MetricCard, ChartCard, LineChart, Button } from "@cryptopay/ui";
-import { Loader2 } from "lucide-react";
+import { TopBar } from "../../../../components/layout/TopBar";
 
 function MerchantLinker({ campaignId }: { campaignId: string }) {
-  const [selectedMerchant, setSelectedMerchant] = React.useState("");
+  const queryClient = useQueryClient();
+  const [selected, setSelected] = React.useState("");
+  const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
 
-  const { data: merchantsRes, isLoading: merchantsLoading } = useQuery({
-    queryKey: ["merchants"],
+  const { data: merchantsRes } = useQuery({
+    queryKey: ["all-merchants"],
     queryFn: () => cryptoPaySdk.merchants.listMerchants(),
   });
-
   const { data: campaign } = useQuery({
     queryKey: ["campaign", campaignId],
     queryFn: () => cryptoPaySdk.campaigns.getCampaign(campaignId),
@@ -25,61 +24,57 @@ function MerchantLinker({ campaignId }: { campaignId: string }) {
   const linkMutation = useMutation({
     mutationFn: (merchantId: string) => cryptoPaySdk.campaigns.addMerchant(campaignId, merchantId),
     onSuccess: () => {
-      setSelectedMerchant("");
-      alert("Merchant linked successfully!");
+      setSelected("");
+      setMsg({ ok: true, text: "Merchant linked." });
+      queryClient.invalidateQueries({ queryKey: ["campaign", campaignId] });
     },
-    onError: (err: any) => {
-      alert("Failed to link merchant.");
-    }
+    onError: () => setMsg({ ok: false, text: "Failed to link merchant." }),
   });
 
-  const merchants = merchantsRes?.data || [];
-  const linkedMerchants = campaign?.merchants || [];
+  const merchants: any[] = (merchantsRes as any)?.data ?? [];
+  const linked: any[] = (campaign as any)?.merchants ?? [];
 
   return (
-    <div className="bg-[#111111] border border-white/10 rounded-xl p-6 space-y-6 mt-8">
-      <div>
-        <h3 className="font-semibold text-lg text-white">Linked Merchants</h3>
-        <p className="text-muted-foreground text-sm">Merchants participating in this campaign.</p>
-      </div>
+    <div className="bg-surface-container-lowest border border-outline-variant rounded-[24px] p-5 space-y-4">
+      <p className="text-[13px] font-semibold text-on-surface-variant uppercase tracking-wide">Linked Merchants</p>
 
-      <div className="flex gap-4">
-        <select 
-          value={selectedMerchant}
-          onChange={(e) => setSelectedMerchant(e.target.value)}
-          className="flex-1 bg-black border border-white/10 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+      <div className="flex gap-2">
+        <select
+          value={selected}
+          onChange={(e) => { setSelected(e.target.value); setMsg(null); }}
+          className="flex-1 bg-surface-container rounded-[12px] px-3 py-2.5 text-[14px] text-on-background outline-none border border-outline-variant focus:border-primary"
         >
-          <option value="">Select a merchant to link...</option>
-          {merchants.map((m: any) => (
-            <option key={m.id} value={m.id} disabled={linkedMerchants.some((lm: any) => lm.id === m.id)}>
-              {m.name || m.id} {linkedMerchants.some((lm: any) => lm.id === m.id) ? "(Already Linked)" : ""}
-            </option>
-          ))}
+          <option value="">Select merchant…</option>
+          {merchants.map((m: any) => {
+            const already = linked.some((lm: any) => lm.id === m.id);
+            return (
+              <option key={m.id} value={m.id} disabled={already}>
+                {m.displayName || m.name || m.id}{already ? " (linked)" : ""}
+              </option>
+            );
+          })}
         </select>
-        <button 
-          onClick={() => linkMutation.mutate(selectedMerchant)}
-          disabled={!selectedMerchant || linkMutation.isPending}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+        <button
+          onClick={() => linkMutation.mutate(selected)}
+          disabled={!selected || linkMutation.isPending}
+          className="bg-primary text-on-primary rounded-full px-5 text-[14px] font-semibold disabled:opacity-50"
         >
-          {linkMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Link Merchant"}
+          {linkMutation.isPending ? "…" : "Link"}
         </button>
       </div>
+      {msg && <p className={`text-[13px] ${msg.ok ? "text-primary" : "text-error"}`}>{msg.text}</p>}
 
       <div className="space-y-2">
-        {linkedMerchants.length === 0 ? (
-          <div className="text-sm text-muted-foreground bg-white/5 rounded-md p-4 text-center">
-            No merchants linked to this campaign yet.
-          </div>
+        {linked.length === 0 ? (
+          <p className="text-[13px] text-on-surface-variant text-center py-3">No merchants linked yet.</p>
         ) : (
-          linkedMerchants.map((m: any) => (
-            <div key={m.id} className="bg-white/5 border border-white/10 rounded-md p-3 flex justify-between items-center">
-              <div>
-                <div className="font-medium text-white">{m.name || "Unnamed Merchant"}</div>
-                <div className="text-xs text-muted-foreground font-mono">{m.id}</div>
+          linked.map((m: any) => (
+            <div key={m.id} className="flex items-center justify-between bg-surface-container rounded-[12px] px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-[14px] font-medium text-on-background truncate">{m.displayName || m.name || "Merchant"}</p>
+                <p className="text-[11px] font-mono text-on-surface-variant truncate">{m.id}</p>
               </div>
-              <div className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-xs rounded font-bold border border-emerald-500/20">
-                LINKED
-              </div>
+              <span className="text-[11px] font-semibold bg-secondary-container text-primary px-2 py-0.5 rounded-full shrink-0">LINKED</span>
             </div>
           ))
         )}
@@ -90,119 +85,123 @@ function MerchantLinker({ campaignId }: { campaignId: string }) {
 
 export default function CampaignDetailPage() {
   const params = useParams();
+  const queryClient = useQueryClient();
   const id = params.id as string;
 
-  const { data: campaign, isLoading: campaignLoading, refetch: refetchCampaign } = useQuery({
+  const { data: campaign, isLoading } = useQuery({
     queryKey: ["campaign", id],
     queryFn: () => cryptoPaySdk.campaigns.getCampaign(id),
   });
-
-  const { data: analytics, isLoading: analyticsLoading } = useQuery({
+  const { data: analytics } = useQuery({
     queryKey: ["campaign-analytics", id],
     queryFn: () => cryptoPaySdk.campaigns.getCampaignAnalytics(id),
   });
 
-  const timelineData = analytics?.timelineSeries || [];
+  const actionMutation = useMutation({
+    mutationFn: async (action: "activate" | "pause" | "complete") => {
+      if (action === "activate") return cryptoPaySdk.campaigns.activateCampaign(id);
+      if (action === "pause") return cryptoPaySdk.campaigns.pauseCampaign(id);
+      return cryptoPaySdk.campaigns.completeCampaign(id);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["campaign", id] }),
+  });
 
-  if (campaignLoading) {
+  if (isLoading) {
     return (
-      <div className="space-y-6 animate-in fade-in max-w-5xl mx-auto">
-        <Skeleton className="h-20 w-full rounded-xl" />
-        <div className="grid grid-cols-3 gap-4">
-          <Skeleton className="h-32 w-full rounded-xl" />
-          <Skeleton className="h-32 w-full rounded-xl" />
-          <Skeleton className="h-32 w-full rounded-xl" />
+      <div className="min-h-screen bg-background">
+        <TopBar backHref="/merchant/campaigns" title="Campaign" />
+        <div className="px-[20px] space-y-3 pt-2">
+          {Array(3).fill(0).map((_, i) => <div key={i} className="animate-pulse bg-surface-container-high rounded-[20px] h-24" />)}
         </div>
       </div>
     );
   }
 
   if (!campaign) {
-    return <div className="text-white">Campaign not found</div>;
+    return (
+      <div className="min-h-screen bg-background">
+        <TopBar backHref="/merchant/campaigns" title="Campaign" />
+        <div className="px-[20px] pt-16 flex flex-col items-center gap-2 text-on-surface-variant">
+          <span className="material-symbols-outlined text-[48px]">search_off</span>
+          <p className="text-[14px]">Campaign not found</p>
+        </div>
+      </div>
+    );
   }
 
-  const handleAction = async (action: 'activate' | 'pause' | 'complete') => {
-    try {
-      if (action === 'activate') await cryptoPaySdk.campaigns.activateCampaign(id);
-      if (action === 'pause') await cryptoPaySdk.campaigns.pauseCampaign(id);
-      if (action === 'complete') await cryptoPaySdk.campaigns.completeCampaign(id);
-      refetchCampaign();
-    } catch (e) {
-      console.error(e);
-      alert(`Failed to ${action} campaign`);
-    }
-  };
+  const isActive = campaign.status === "ACTIVE";
+  const metrics = [
+    { label: "Budget", value: `${campaign.budgetStar} STAR` },
+    { label: "Distributed", value: `${analytics?.totalDistributedSTAR ?? 0} STAR` },
+    { label: "Participants", value: String(analytics?.participantCount ?? 0) },
+  ];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 max-w-5xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-6">
-        <div className="flex items-center gap-4">
-          <Link href="/merchant/campaigns" className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors">
-            <ArrowLeft className="h-5 w-5" />
+    <div className="min-h-screen bg-background pb-24">
+      <TopBar
+        backHref="/merchant/campaigns"
+        title="Campaign"
+        actions={
+          <Link href={`/merchant/campaigns/${id}/edit`} className="flex items-center justify-center w-9 h-9 rounded-full bg-surface-container text-on-surface">
+            <span className="material-symbols-outlined text-[20px]">edit</span>
           </Link>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold tracking-tight text-white">{campaign.name}</h1>
-              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">
-                {campaign.status}
-              </span>
+        }
+      />
+
+      <div className="px-[20px] space-y-5 pt-1">
+        {/* Header */}
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-[24px] p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[20px] font-bold text-on-background">{campaign.name}</p>
+              <p className="text-[14px] text-primary font-semibold">+{campaign.rewardAmountStar} STAR reward</p>
             </div>
-            <p className="text-muted-foreground mt-1 text-sm">Reward Amount: {campaign.rewardAmountStar} STAR</p>
+            <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full shrink-0 ${isActive ? "bg-secondary-container text-primary" : "bg-surface-container text-on-surface-variant"}`}>
+              {campaign.status}
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {campaign.status === "ACTIVE" ? (
-            <button onClick={() => handleAction('pause')} className="flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 h-9 px-4 py-2">
-              <Pause className="mr-2 h-4 w-4" /> Pause Campaign
+        {/* Metrics */}
+        <div className="grid grid-cols-3 gap-3">
+          {metrics.map((m) => (
+            <div key={m.label} className="bg-surface-container-lowest border border-outline-variant rounded-[20px] p-4 text-center">
+              <p className="text-[18px] font-bold text-on-background leading-tight">{m.value}</p>
+              <p className="text-[11px] text-on-surface-variant mt-1">{m.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-2">
+          {isActive ? (
+            <button
+              onClick={() => actionMutation.mutate("pause")}
+              disabled={actionMutation.isPending}
+              className="flex-1 py-3 rounded-full bg-error-container text-error font-semibold disabled:opacity-50"
+            >
+              Pause
             </button>
           ) : (
-            <button onClick={() => handleAction('activate')} className="flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-emerald-600 hover:bg-emerald-700 text-white shadow h-9 px-4 py-2">
-              <Play className="mr-2 h-4 w-4" /> Activate
+            <button
+              onClick={() => actionMutation.mutate("activate")}
+              disabled={actionMutation.isPending}
+              className="flex-1 py-3 rounded-full bg-primary text-on-primary font-semibold disabled:opacity-50"
+            >
+              Activate
             </button>
           )}
-          <button onClick={() => handleAction('complete')} className="flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-white/10 bg-black hover:bg-white/5 text-white h-9 px-4 py-2">
-            <CheckCircle className="mr-2 h-4 w-4" /> Mark Complete
+          <button
+            onClick={() => actionMutation.mutate("complete")}
+            disabled={actionMutation.isPending}
+            className="flex-1 py-3 rounded-full bg-surface-container-lowest border border-outline-variant text-on-background font-semibold disabled:opacity-50"
+          >
+            Complete
           </button>
-          <Link href={`/merchant/campaigns/${id}/edit`} className="flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-white/10 bg-black hover:bg-white/5 text-white h-9 px-4 py-2">
-            Edit
-          </Link>
         </div>
+
+        <MerchantLinker campaignId={id} />
       </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <MetricCard 
-          title="Total Budget" 
-          value={`${campaign.budgetStar.toString()} STAR`} 
-        />
-        <MetricCard 
-          title="STAR Distributed" 
-          value={`${analytics?.totalDistributedSTAR || 0} STAR`} 
-        />
-        <MetricCard 
-          title="Participants" 
-          value={(analytics?.participantCount || 0).toString()} 
-        />
-      </div>
-
-      <ChartCard 
-        title="Distribution Timeline" 
-        description="STAR tokens distributed per day over the campaign lifecycle"
-      >
-        {analyticsLoading ? (
-          <Skeleton className="h-[300px] w-full" />
-        ) : (
-          <LineChart 
-            data={timelineData} 
-            index="day" 
-            categories={["distributed"]} 
-            colors={["#10b981"]}
-            valueFormatter={(val) => `${val} STAR`}
-          />
-        )}
-      </ChartCard>
-
-      <MerchantLinker campaignId={id} />
     </div>
   );
 }

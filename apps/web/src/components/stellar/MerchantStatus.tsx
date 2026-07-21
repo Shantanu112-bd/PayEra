@@ -3,11 +3,20 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { CheckCircle, AlertCircle, Clock, HelpCircle } from "lucide-react";
 
 interface MerchantStatusProps {
   merchantId: string;
   className?: string;
+}
+
+function Row({ icon, color, label, extra }: { icon: string; color: string; label: string; extra?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`material-symbols-outlined text-[20px] ${color}`}>{icon}</span>
+      <span className="text-[14px] font-medium text-on-background">{label}</span>
+      {extra}
+    </div>
+  );
 }
 
 export function MerchantStatus({ merchantId, className = "" }: MerchantStatusProps) {
@@ -22,72 +31,70 @@ export function MerchantStatus({ merchantId, className = "" }: MerchantStatusPro
   if (isLoading) {
     return (
       <div className={`flex items-center gap-2 ${className}`}>
-        <div className="w-5 h-5 rounded-full border-2 border-gray-300 border-t-transparent animate-spin" />
-        <span className="text-sm text-gray-500">Checking...</span>
+        <span className="material-symbols-outlined text-[20px] text-on-surface-variant animate-spin">
+          progress_activity
+        </span>
+        <span className="text-[14px] text-on-surface-variant">Checking…</span>
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className={`flex items-center gap-2 ${className}`}>
-        <HelpCircle className="w-5 h-5 text-gray-400" />
-        <span className="text-sm text-gray-500">Status unknown</span>
+      <div className={className}>
+        <Row icon="help" color="text-on-surface-variant" label="Status unknown" />
       </div>
     );
   }
 
-  const isApproved = data.isApproved;
   const onChainData = data.onChainData;
 
-  if (isApproved) {
+  if (data.isApproved) {
     return (
-      <div className={`flex items-center gap-2 ${className}`}>
-        <CheckCircle className="w-5 h-5 text-[#A3B359]" />
-        <span className="text-sm font-medium text-[#1A1A1A]">On-chain: Approved</span>
-        {onChainData && (
-          <span className="text-[10px] font-mono text-gray-400 ml-1">
-            ID: {onChainData.id?.slice(0, 8)}...
-          </span>
-        )}
+      <div className={className}>
+        <Row
+          icon="check_circle"
+          color="text-primary"
+          label="On-chain: Approved"
+          extra={
+            onChainData && (
+              <span className="text-[11px] font-mono text-on-surface-variant ml-1">
+                ID: {onChainData.id?.slice(0, 8)}…
+              </span>
+            )
+          }
+        />
       </div>
     );
   }
 
-  // Check if merchant exists on-chain but not approved
   const status = onChainData?.status || "UNKNOWN";
 
   if (status === "PENDING") {
     return (
-      <div className={`flex items-center gap-2 ${className}`}>
-        <Clock className="w-5 h-5 text-yellow-500" />
-        <span className="text-sm font-medium text-yellow-600">On-chain: Pending Review</span>
+      <div className={className}>
+        <Row icon="schedule" color="text-tertiary" label="On-chain: Pending Review" />
       </div>
     );
   }
-
   if (status === "SUSPENDED") {
     return (
-      <div className={`flex items-center gap-2 ${className}`}>
-        <AlertCircle className="w-5 h-5 text-orange-500" />
-        <span className="text-sm font-medium text-orange-600">On-chain: Suspended</span>
+      <div className={className}>
+        <Row icon="error" color="text-error" label="On-chain: Suspended" />
       </div>
     );
   }
-
   if (status === "REJECTED") {
     return (
-      <div className={`flex items-center gap-2 ${className}`}>
-        <AlertCircle className="w-5 h-5 text-red-500" />
-        <span className="text-sm font-medium text-red-600">On-chain: Rejected</span>
+      <div className={className}>
+        <Row icon="cancel" color="text-error" label="On-chain: Rejected" />
       </div>
     );
   }
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <Clock className="w-5 h-5 text-gray-400" />
-      <span className="text-sm font-medium text-gray-500">Not registered on-chain</span>
+    <div className={className}>
+      <Row icon="schedule" color="text-on-surface-variant" label="Not registered on-chain" />
     </div>
   );
 }

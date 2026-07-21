@@ -1,80 +1,106 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
-import { ChartCard, LineChart, PieChart } from "@cryptopay/ui";
-
 import { useQuery } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
+import { useAppStore } from "../../../lib/store";
+import { TopBar } from "../../../components/layout/TopBar";
 
-const DEMO_USER_ID = "33333333-3333-3333-3333-333333333333";
+const SOURCE_COLORS: Record<string, string> = {
+  Payments: "bg-primary",
+  Referrals: "bg-tertiary",
+  Campaigns: "bg-secondary",
+  Merchant: "bg-error",
+};
 
 export default function ConsumerAnalyticsPage() {
+  const { currentUserId } = useAppStore();
+
   const { data: metrics, isLoading } = useQuery({
-    queryKey: ["consumer-reward-metrics", DEMO_USER_ID],
-    queryFn: () => cryptoPaySdk.analytics.getConsumerRewardMetrics(DEMO_USER_ID),
+    queryKey: ["consumer-reward-metrics", currentUserId],
+    queryFn: () => cryptoPaySdk.analytics.getConsumerRewardMetrics(currentUserId!),
+    enabled: !!currentUserId,
   });
 
-  const starEarningsData = metrics?.timeSeries || [];
+  const timeSeries: any[] = metrics?.timeSeries ?? [];
+  const maxEarned = Math.max(1, ...timeSeries.map((d) => Number(d.earned ?? 0)));
 
-  const sourceData = metrics?.byReason ? [
-    { name: "Payments", value: metrics.byReason.SPEND || 0 },
-    { name: "Referrals", value: metrics.byReason.REFERRAL || 0 },
-    { name: "Campaigns", value: metrics.byReason.CAMPAIGN || 0 },
-    { name: "Merchant", value: metrics.byReason.MERCHANT || 0 },
-  ].filter(s => s.value > 0) : [];
+  const sources = metrics?.byReason
+    ? [
+        { name: "Payments", value: metrics.byReason.SPEND || 0 },
+        { name: "Referrals", value: metrics.byReason.REFERRAL || 0 },
+        { name: "Campaigns", value: metrics.byReason.CAMPAIGN || 0 },
+        { name: "Merchant", value: metrics.byReason.MERCHANT || 0 },
+      ].filter((s) => s.value > 0)
+    : [];
+  const sourcesTotal = sources.reduce((sum, s) => sum + s.value, 0) || 1;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
-      <div className="flex items-center gap-4 border-b border-white/10 pb-6">
-        <Link href="/rewards" className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors">
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Reward Analytics</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Visualize your STAR earning trends.</p>
+    <div className="min-h-screen bg-background pb-24">
+      <TopBar backHref="/rewards" title="Reward Analytics" />
+
+      <div className="px-[20px] space-y-5 pt-1">
+        {/* Total earned */}
+        <div className="rewards-gradient rounded-[24px] p-6 text-white">
+          <p className="text-[13px] font-medium opacity-80">Total STAR Earned</p>
+          {isLoading ? (
+            <div className="h-10 w-32 bg-white/20 rounded-[8px] animate-pulse mt-1" />
+          ) : (
+            <p className="text-[40px] font-bold leading-none">{metrics?.totalEarned ?? 0}</p>
+          )}
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ChartCard 
-          title="Earnings Over Time" 
-          description="STAR tokens earned per month"
-        >
+        {/* Earnings over time */}
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-[24px] p-5">
+          <p className="text-[13px] font-semibold text-on-surface-variant uppercase tracking-wide mb-4">Earnings Over Time</p>
           {isLoading ? (
-             <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-white/5 rounded-xl bg-black/20">Loading...</div>
-          ) : starEarningsData.length === 0 ? (
-             <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-white/5 rounded-xl bg-black/20">No earnings data available</div>
+            <div className="h-40 animate-pulse bg-surface-container-high rounded-[12px]" />
+          ) : timeSeries.length === 0 ? (
+            <div className="h-40 flex items-center justify-center text-on-surface-variant text-[13px]">No earnings data</div>
           ) : (
-            <LineChart 
-              data={starEarningsData} 
-              index="month" 
-              categories={["earned"]} 
-              colors={["#f59e0b"]}
-              valueFormatter={(val) => `${val} STAR`}
-            />
+            <div className="flex items-end gap-2 h-40">
+              {timeSeries.map((d, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                  <div
+                    className="w-full bg-primary/80 rounded-t-[4px] min-h-[2px]"
+                    style={{ height: `${(Number(d.earned ?? 0) / maxEarned) * 100}%` }}
+                    title={`${d.month}: ${d.earned} STAR`}
+                  />
+                  <span className="text-[10px] text-on-surface-variant truncate max-w-full">{d.month}</span>
+                </div>
+              ))}
+            </div>
           )}
-        </ChartCard>
+        </div>
 
-        <ChartCard 
-          title="Earning Sources" 
-          description="Where your STAR tokens come from"
-        >
+        {/* Earning sources */}
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-[24px] p-5">
+          <p className="text-[13px] font-semibold text-on-surface-variant uppercase tracking-wide mb-4">Earning Sources</p>
           {isLoading ? (
-             <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-white/5 rounded-xl bg-black/20">Loading...</div>
-          ) : sourceData.length === 0 ? (
-             <div className="h-[300px] flex items-center justify-center text-muted-foreground border border-white/5 rounded-xl bg-black/20">No earning sources available</div>
+            <div className="space-y-3">
+              {Array(3).fill(0).map((_, i) => <div key={i} className="h-5 animate-pulse bg-surface-container-high rounded-[6px]" />)}
+            </div>
+          ) : sources.length === 0 ? (
+            <p className="text-[13px] text-on-surface-variant">No earning sources yet</p>
           ) : (
-            <PieChart 
-              data={sourceData} 
-              nameKey="name" 
-              dataKey="value" 
-              colors={["#3b82f6", "#10b981", "#8b5cf6", "#f43f5e"]}
-              valueFormatter={(val) => `${val} STAR`}
-            />
+            <div className="space-y-4">
+              {sources.map((s) => (
+                <div key={s.name}>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-[14px] text-on-background">{s.name}</span>
+                    <span className="text-[13px] font-semibold text-on-background">{s.value} STAR</span>
+                  </div>
+                  <div className="h-2 bg-surface-container rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${SOURCE_COLORS[s.name] ?? "bg-primary"}`}
+                      style={{ width: `${(s.value / sourcesTotal) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
-        </ChartCard>
+        </div>
       </div>
     </div>
   );

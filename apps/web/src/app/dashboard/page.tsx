@@ -1,173 +1,143 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { Skeleton } from "@cryptopay/ui";
-import { Check } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useStellarWallet } from "../../components/providers/StellarWalletProvider";
 import { useAppStore } from "../../lib/store";
-import { motion } from "framer-motion";
+import { TopBar } from "../../components/layout/TopBar";
 
-function SectionTag({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-2 mb-3">
-      <span className="font-mono text-xs text-muted px-2 py-0.5 uppercase">
-        [□]———[{label}]
-      </span>
-    </div>
-  );
+const QUICK_ACTIONS = [
+  { icon: "qr_code_scanner", label: "Scan & Pay", href: "/pay" },
+  { icon: "arrow_downward", label: "Deposit", href: "/wallet/onramp" },
+  { icon: "arrow_upward", label: "Withdraw", href: "/wallet/offramp" },
+  { icon: "receipt_long", label: "History", href: "/history" },
+];
+
+const STATUS_STYLES: Record<string, string> = {
+  COMPLETED: "bg-secondary-container text-primary",
+  FAILED: "bg-error-container text-error",
+  CANCELLED: "bg-error-container text-error",
+};
+
+function statusChip(status: string) {
+  return STATUS_STYLES[status] ?? "bg-surface-container text-on-surface-variant";
 }
 
 export default function DashboardPage() {
-  const router = useRouter();
-  
-  const { data: rewards, isLoading: rewardsLoading } = useQuery({
-    queryKey: ["rewards"],
+  const { balances, publicKey } = useStellarWallet();
+  const { currentUserDisplayName } = useAppStore();
+
+  const { data: rewards } = useQuery({
+    queryKey: ["rewards-balance"],
     queryFn: () => cryptoPaySdk.rewards.getRewards(),
   });
 
-  const { data: transactions, isLoading: txLoading } = useQuery({
-    queryKey: ["transactions"],
+  const { data: txData, isLoading: txLoading } = useQuery({
+    queryKey: ["dashboard-transactions"],
     queryFn: () => cryptoPaySdk.transactions.listTransactions({ limit: 5 }),
   });
 
-  const { balances } = useStellarWallet();
-  const { currentUserDisplayName } = useAppStore();
-  
-  const xlmBalance = balances?.XLM || "0.00";
-  const usdcBalance = balances?.USDC || "0.00";
-  const starBalance = rewards?.totalStarAmount || "0";
+  const transactions: any[] = (txData as any)?.data ?? [];
+  const starBalance = rewards?.lifetimeStar ?? 0;
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="space-y-6 max-w-md mx-auto pb-24 pt-2"
-    >
-      {/* Greeting */}
-      <h1 className="text-[16px] font-mono text-muted mb-2">
-        Good morning, {currentUserDisplayName || 'there'}
-      </h1>
+    <div className="min-h-screen bg-background pb-24">
+      <TopBar
+        title={`Hi, ${currentUserDisplayName || "there"}`}
+        actions={
+          <Link
+            href="/profile"
+            className="flex items-center justify-center w-9 h-9 rounded-full bg-surface-container text-on-surface"
+          >
+            <span className="material-symbols-outlined text-[20px]">person</span>
+          </Link>
+        }
+      />
 
-      {/* ZONE 1: Balance + Allowance Status */}
-      <div className="space-y-4 mb-8">
-        <SectionTag label="WALLET" />
-        <div className="w-full bg-white border-[1.5px] border-[#1A1A1A] rounded-[20px] p-6 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-start mb-6">
-            <div className="text-[11px] font-mono uppercase text-muted tracking-wider">
-              TOTAL BALANCE
-            </div>
-            <div className="text-[10px] font-mono bg-ink/5 border border-ink/10 px-2 py-1 rounded-full text-ink">
-              STELLAR TESTNET
-            </div>
+      <div className="px-[20px] space-y-5 pt-1">
+        {/* Balance hero */}
+        <div className="rewards-gradient rounded-[24px] p-6 text-white space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-[13px] font-medium opacity-80">Total Balance</p>
+            <span className="text-[11px] font-semibold bg-white/15 px-2.5 py-1 rounded-full">
+              Stellar
+            </span>
           </div>
-
-          <div className="mb-6">
-            <div className="text-4xl font-mono font-bold text-ink flex items-baseline gap-1">
-              {xlmBalance} <span className="text-xl text-muted font-medium">XLM</span>
-            </div>
-            <div className="flex items-center gap-3 mt-2 text-sm font-mono text-muted">
-              <span>{usdcBalance} USDC</span>
-              <span className="w-1 h-1 rounded-full bg-ink/20" />
-              <span className="text-[#C5D483] font-bold">{starBalance} STAR</span>
-            </div>
+          <div>
+            <p className="text-[40px] font-bold leading-none">
+              {balances?.XLM ?? "0.00"} <span className="text-[20px] font-medium opacity-80">XLM</span>
+            </p>
           </div>
-
-          {/* Allowance Status Row */}
-          <div className="mt-6 pt-4 border-t-[1.5px] border-ink/10 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-[#A3B359] animate-pulse" />
-              <span className="text-[11px] font-mono font-bold text-ink tracking-wider">OPERATOR ALLOWANCE</span>
-            </div>
-            <span className="text-[11px] font-mono text-muted">ACTIVE</span>
+          <div className="flex items-center gap-4 text-[13px] pt-3 border-t border-white/20">
+            <span className="opacity-90">{balances?.USDC ?? "0.00"} USDC</span>
+            <span className="w-1 h-1 rounded-full bg-white/40" />
+            <span className="font-semibold">{String(starBalance)} STAR</span>
           </div>
         </div>
-      </div>
 
-      {/* ZONE 2: Quick Actions + Contract Status */}
-      <div className="space-y-4 mb-8">
-        <SectionTag label="SYSTEM" />
-        <div className="grid grid-cols-2 gap-4">
-          {/* Quick Actions */}
-          <div className="flex flex-col gap-3">
-            <button 
-              onClick={() => router.push('/pay')}
-              className="flex-1 bg-[#1A1A1A] text-white rounded-[16px] p-4 text-xs font-bold tracking-wider flex flex-col items-start justify-center gap-2 border-[1.5px] border-[#1A1A1A] hover:bg-[#1A1A1A]/90 transition-colors shadow-sm"
+        {/* Quick actions */}
+        <div className="grid grid-cols-4 gap-3">
+          {QUICK_ACTIONS.map((a) => (
+            <Link
+              key={a.label}
+              href={a.href}
+              className="flex flex-col items-center gap-2 bg-surface-container-lowest border border-outline-variant rounded-[20px] py-4 active:bg-surface-container transition-colors"
             >
-              <span className="text-lg mb-1">⬤</span> 
-              <span>SCAN & PAY</span>
-            </button>
-            <div className="flex gap-3 h-12">
-              <button className="flex-1 bg-white text-ink rounded-[12px] text-[10px] font-bold tracking-wider border-[1.5px] border-[#1A1A1A] hover:bg-ink/5 transition-colors">
-                ADD USDC
-              </button>
-              <button className="flex-1 bg-white text-ink rounded-[12px] text-[10px] font-bold tracking-wider border-[1.5px] border-[#1A1A1A] hover:bg-ink/5 transition-colors">
-                CASH OUT
-              </button>
-            </div>
-          </div>
-
-          {/* Contract Status */}
-          <div className="flex flex-col gap-2">
-            {[
-              { name: "STAR Token", address: "CCW3...X9P2" },
-              { name: "Reward Engine", address: "CBT5...3L1M" },
-              { name: "Payment Engine", address: "CDA8...K4N9" },
-            ].map(contract => (
-              <div key={contract.name} className="flex-1 flex flex-col justify-center p-3 bg-white rounded-[12px] border-[1.5px] border-ink hover:bg-ink/5 transition-colors">
-                 <div className="flex items-center justify-between mb-1">
-                    <div className="font-bold text-[10px] text-ink uppercase tracking-wider">{contract.name}</div>
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#A3B359] animate-pulse" />
-                 </div>
-                 <Link href={`https://stellar.expert/explorer/testnet/contract/${contract.address.replace("...", "")}`} className="text-[9px] text-blue-600 underline font-mono truncate">
-                   {contract.address}
-                 </Link>
-              </div>
-            ))}
-          </div>
+              <span className="material-symbols-outlined text-primary text-[24px]">{a.icon}</span>
+              <span className="text-[11px] font-semibold text-on-background text-center leading-tight">{a.label}</span>
+            </Link>
+          ))}
         </div>
-      </div>
 
-      {/* ZONE 3: Recent Activity */}
-      <div className="space-y-4">
-        <SectionTag label="RECENT" />
-        
-        <div className="space-y-3">
-          {txLoading ? (
-            Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-[16px] border-[1.5px] border-ink/20" />)
-          ) : (transactions as any)?.items?.length === 0 ? (
-            <div className="text-center p-6 border-[1.5px] border-ink/10 rounded-[16px] bg-white text-muted font-mono text-sm">
-              No recent transactions
-            </div>
-          ) : (
-            ((transactions as any)?.items ?? []).map((tx: any) => (
-              <div key={tx.id} className="flex items-center justify-between p-4 bg-white rounded-[16px] border-[1.5px] border-ink">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-[#F5F2EC] flex items-center justify-center border-[1.5px] border-ink">
-                    <span className="font-mono font-bold text-sm text-ink">
-                      {tx.merchantName?.substring(0, 2).toUpperCase() || 'M'}
+        {/* Recent activity */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[13px] font-semibold text-on-surface-variant uppercase tracking-wide">Recent Activity</p>
+            <Link href="/history" className="text-[13px] font-semibold text-primary">See all</Link>
+          </div>
+          <div className="bg-surface-container-lowest rounded-[24px] overflow-hidden divide-y divide-outline-variant">
+            {txLoading ? (
+              Array(3).fill(0).map((_, i) => (
+                <div key={i} className="p-4">
+                  <div className="animate-pulse bg-surface-container-high rounded-[12px] h-10 w-full" />
+                </div>
+              ))
+            ) : transactions.length === 0 ? (
+              <div className="py-12 flex flex-col items-center gap-2 text-on-surface-variant">
+                <span className="material-symbols-outlined text-[40px]">receipt_long</span>
+                <p className="text-[14px]">No transactions yet</p>
+                <Link href="/pay" className="mt-2 text-[13px] font-semibold text-primary">Scan &amp; Pay</Link>
+              </div>
+            ) : (
+              transactions.map((tx: any) => (
+                <Link key={tx.id} href={`/history/${tx.id}`} className="flex items-center gap-3 px-4 py-3 active:bg-surface-container transition-colors">
+                  <div className="w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
+                    <span className="material-symbols-outlined text-primary text-[20px]">storefront</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[14px] font-medium text-on-background truncate">
+                      {tx.merchantUpiVpa || tx.publicId || "Payment"}
+                    </p>
+                    <p className="text-[12px] text-on-surface-variant">
+                      {new Date(tx.createdAt).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className="text-[14px] font-bold text-on-background">
+                      ₹{(Number(tx.amountInPaise || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${statusChip(tx.status)}`}>
+                      {tx.status}
                     </span>
                   </div>
-                  <div>
-                    <div className="font-bold text-sm text-ink">{tx.merchantName || 'Merchant'}</div>
-                    <div className="text-xs text-muted font-mono">
-                      {new Date(tx.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="font-bold text-sm text-ink">₹{tx.amountFiat || '0.00'}</div>
-                  <div className="text-[11px] text-[#A3B359] font-bold">+{tx.rewardAmount || '0'} STAR</div>
-                </div>
-              </div>
-            ))
-          )}
+                </Link>
+              ))
+            )}
+          </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

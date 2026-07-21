@@ -4,32 +4,48 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { cryptoPaySdk } from "@cryptopay/sdk";
-import { CheckCircle2, ChevronRight, Store, User, CreditCard, ShieldCheck } from "lucide-react";
-import { KycOnboarding } from "@/components/kyc/KycOnboarding";
+import { KycOnboarding } from "../../../components/kyc/KycOnboarding";
+import { TopBar } from "../../../components/layout/TopBar";
+
+const inputCls =
+  "w-full bg-surface-container rounded-[14px] px-4 py-3 text-[15px] text-on-background outline-none border border-outline-variant focus:border-primary";
+
+const STEPS = [
+  { id: 1, name: "Business", icon: "storefront" },
+  { id: 2, name: "Identity", icon: "person" },
+  { id: 3, name: "Settlement", icon: "account_balance" },
+  { id: 4, name: "KYC", icon: "verified_user" },
+];
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-[13px] font-semibold text-on-surface-variant">{label}</label>
+      {children}
+    </div>
+  );
+}
 
 export default function MerchantOnboardingWizard() {
   const router = useRouter();
   const [step, setStep] = React.useState(1);
-  
+
   const [formData, setFormData] = React.useState({
-    // Step 1: Business Profile
     legalName: "",
     displayName: "",
     gstin: "",
     category: "",
-    // Step 2: Owner Identity
     ownerPan: "",
     ownerDob: "",
     city: "",
     state: "",
     country: "IN",
     postalCode: "",
-    // Step 3: Bank / Settlement
     defaultUpiVpa: "",
   });
 
   const updateForm = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
   const submitMutation = useMutation({
@@ -47,318 +63,238 @@ export default function MerchantOnboardingWizard() {
         metadata: {
           ownerPan: formData.ownerPan,
           ownerDob: formData.ownerDob,
-        }
+        },
       });
     },
-    onSuccess: () => {
-      setStep(4); // Success step
-    }
+    onSuccess: () => setStep(4),
   });
 
-  const nextStep = () => setStep(s => Math.min(s + 1, 3));
-  const prevStep = () => setStep(s => Math.max(s - 1, 1));
-
-  const steps = [
-    { id: 1, name: "Business Profile", icon: Store },
-    { id: 2, name: "Owner Identity", icon: User },
-    { id: 3, name: "Settlement Info", icon: CreditCard },
-    { id: 4, name: "KYC Verification", icon: ShieldCheck },
-  ];
+  const nextStep = () => setStep((s) => Math.min(s + 1, 3));
+  const prevStep = () => setStep((s) => Math.max(s - 1, 1));
 
   return (
-    <div className="max-w-3xl mx-auto py-12 px-4">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Become a Merchant</h1>
-        <p className="text-gray-500 mt-2">Start accepting instant crypto payments settled in fiat.</p>
-      </div>
+    <div className="min-h-screen bg-background pb-24">
+      <TopBar backHref="/merchant" title="Become a Merchant" />
 
-      {step < 5 && (
-        <div className="flex items-center justify-between mb-8">
-          {steps.map((s, idx) => (
-            <React.Fragment key={s.id}>
-              <div className={`flex flex-col items-center ${step >= s.id ? 'text-indigo-600' : 'text-gray-400'}`}>
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 mb-2 ${
-                  step >= s.id ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'
-                }`}>
-                  <s.icon className="w-5 h-5" />
-                </div>
-                <span className="text-xs font-medium">{s.name}</span>
-              </div>
-              {idx < steps.length - 1 && (
-                <div className={`flex-1 h-0.5 mx-4 ${step > s.id ? 'bg-indigo-600' : 'bg-gray-200'}`} />
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-      )}
+      <div className="px-[20px] pt-1 space-y-5">
+        {step < 5 && (
+          <>
+            <p className="text-[14px] text-on-surface-variant">
+              Start accepting instant crypto payments settled in fiat.
+            </p>
 
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            {/* Stepper */}
+            <div className="flex items-center justify-between">
+              {STEPS.map((s, idx) => (
+                <React.Fragment key={s.id}>
+                  <div className="flex flex-col items-center gap-1.5">
+                    <div
+                      className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                        step >= s.id
+                          ? "bg-primary text-on-primary"
+                          : "bg-surface-container text-on-surface-variant"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[20px]">{s.icon}</span>
+                    </div>
+                    <span
+                      className={`text-[11px] font-medium ${
+                        step >= s.id ? "text-primary" : "text-on-surface-variant"
+                      }`}
+                    >
+                      {s.name}
+                    </span>
+                  </div>
+                  {idx < STEPS.length - 1 && (
+                    <div className={`flex-1 h-0.5 mx-1 ${step > s.id ? "bg-primary" : "bg-outline-variant"}`} />
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Step 1: Business */}
         {step === 1 && (
-          <div className="p-8 space-y-6">
+          <div className="space-y-4">
             <div>
-              <h2 className="text-xl font-bold">Business Details</h2>
-              <p className="text-sm text-gray-500 mt-1">Tell us about your business.</p>
+              <p className="text-[18px] font-bold text-on-background">Business Details</p>
+              <p className="text-[13px] text-on-surface-variant">Tell us about your business.</p>
             </div>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Legal Business Name</label>
-                <input 
-                  required
-                  name="legalName"
-                  value={formData.legalName}
-                  onChange={updateForm}
-                  className="w-full px-3 py-2 border rounded-md" 
-                  placeholder="e.g. Rao Retail Private Limited" 
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Display Name (Store Name)</label>
-                <input 
-                  required
-                  name="displayName"
-                  value={formData.displayName}
-                  onChange={updateForm}
-                  className="w-full px-3 py-2 border rounded-md" 
-                  placeholder="e.g. Rao Fresh Mart" 
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">GSTIN (Optional)</label>
-                  <input 
-                    name="gstin"
-                    value={formData.gstin}
-                    onChange={updateForm}
-                    className="w-full px-3 py-2 border rounded-md" 
-                    placeholder="27ABCDE1234F1Z5" 
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Category</label>
-                  <select 
-                    name="category"
-                    value={formData.category}
-                    onChange={updateForm}
-                    className="w-full px-3 py-2 border rounded-md"
-                  >
-                    <option value="">Select a category</option>
-                    <option value="retail">Retail & Grocery</option>
-                    <option value="fnb">Food & Beverage</option>
-                    <option value="services">Services</option>
-                    <option value="ecommerce">E-commerce</option>
-                  </select>
-                </div>
-              </div>
+            <Field label="Legal Business Name">
+              <input
+                required
+                name="legalName"
+                value={formData.legalName}
+                onChange={updateForm}
+                className={inputCls}
+                placeholder="Rao Retail Private Limited"
+              />
+            </Field>
+            <Field label="Display Name (Store Name)">
+              <input
+                required
+                name="displayName"
+                value={formData.displayName}
+                onChange={updateForm}
+                className={inputCls}
+                placeholder="Rao Fresh Mart"
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="GSTIN (Optional)">
+                <input name="gstin" value={formData.gstin} onChange={updateForm} className={inputCls} placeholder="27ABCDE1234F1Z5" />
+              </Field>
+              <Field label="Category">
+                <select name="category" value={formData.category} onChange={updateForm} className={inputCls}>
+                  <option value="">Select…</option>
+                  <option value="retail">Retail & Grocery</option>
+                  <option value="fnb">Food & Beverage</option>
+                  <option value="services">Services</option>
+                  <option value="ecommerce">E-commerce</option>
+                </select>
+              </Field>
             </div>
-
-            <div className="flex justify-end pt-4">
-              <button 
-                onClick={nextStep}
-                disabled={!formData.legalName || !formData.displayName}
-                className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
-              >
-                Next <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+            <button
+              onClick={nextStep}
+              disabled={!formData.legalName || !formData.displayName}
+              className="w-full py-3.5 rounded-full bg-primary text-on-primary font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform"
+            >
+              Next
+            </button>
           </div>
         )}
 
+        {/* Step 2: Identity */}
         {step === 2 && (
-          <div className="p-8 space-y-6">
+          <div className="space-y-4">
             <div>
-              <h2 className="text-xl font-bold">Owner Identity & Address</h2>
-              <p className="text-sm text-gray-500 mt-1">Regulatory details required for compliance.</p>
+              <p className="text-[18px] font-bold text-on-background">Owner Identity & Address</p>
+              <p className="text-[13px] text-on-surface-variant">Regulatory details required for compliance.</p>
             </div>
-            
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">PAN Number</label>
-                  <input 
-                    name="ownerPan"
-                    value={formData.ownerPan}
-                    onChange={updateForm}
-                    className="w-full px-3 py-2 border rounded-md uppercase" 
-                    placeholder="ABCDE1234F" 
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Date of Birth</label>
-                  <input 
-                    type="date"
-                    name="ownerDob"
-                    value={formData.ownerDob}
-                    onChange={updateForm}
-                    className="w-full px-3 py-2 border rounded-md" 
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">City</label>
-                  <input 
-                    name="city"
-                    value={formData.city}
-                    onChange={updateForm}
-                    className="w-full px-3 py-2 border rounded-md" 
-                    placeholder="Mumbai" 
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">State</label>
-                  <input 
-                    name="state"
-                    value={formData.state}
-                    onChange={updateForm}
-                    className="w-full px-3 py-2 border rounded-md" 
-                    placeholder="Maharashtra" 
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Postal Code</label>
-                  <input 
-                    name="postalCode"
-                    value={formData.postalCode}
-                    onChange={updateForm}
-                    className="w-full px-3 py-2 border rounded-md" 
-                    placeholder="400001" 
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Country</label>
-                  <select 
-                    name="country"
-                    value={formData.country}
-                    onChange={updateForm}
-                    className="w-full px-3 py-2 border rounded-md disabled:bg-gray-100"
-                    disabled
-                  >
-                    <option value="IN">India (IN)</option>
-                  </select>
-                </div>
-              </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="PAN Number">
+                <input name="ownerPan" value={formData.ownerPan} onChange={updateForm} className={`${inputCls} uppercase`} placeholder="ABCDE1234F" />
+              </Field>
+              <Field label="Date of Birth">
+                <input type="date" name="ownerDob" value={formData.ownerDob} onChange={updateForm} className={inputCls} />
+              </Field>
+              <Field label="City">
+                <input name="city" value={formData.city} onChange={updateForm} className={inputCls} placeholder="Mumbai" />
+              </Field>
+              <Field label="State">
+                <input name="state" value={formData.state} onChange={updateForm} className={inputCls} placeholder="Maharashtra" />
+              </Field>
+              <Field label="Postal Code">
+                <input name="postalCode" value={formData.postalCode} onChange={updateForm} className={inputCls} placeholder="400001" />
+              </Field>
+              <Field label="Country">
+                <select name="country" value={formData.country} onChange={updateForm} className={inputCls} disabled>
+                  <option value="IN">India (IN)</option>
+                </select>
+              </Field>
             </div>
-
-            <div className="flex justify-between pt-4">
-              <button 
+            <div className="flex gap-2">
+              <button
                 onClick={prevStep}
-                className="px-6 py-2 border border-gray-200 rounded-lg font-medium hover:bg-gray-50"
+                className="flex-1 py-3.5 rounded-full bg-surface-container-lowest border border-outline-variant text-on-background font-semibold"
               >
                 Back
               </button>
-              <button 
+              <button
                 onClick={nextStep}
                 disabled={!formData.city || !formData.state}
-                className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+                className="flex-1 py-3.5 rounded-full bg-primary text-on-primary font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform"
               >
-                Next <ChevronRight className="w-4 h-4" />
+                Next
               </button>
             </div>
           </div>
         )}
 
+        {/* Step 3: Settlement */}
         {step === 3 && (
-          <div className="p-8 space-y-6">
+          <div className="space-y-4">
             <div>
-              <h2 className="text-xl font-bold">Settlement Information</h2>
-              <p className="text-sm text-gray-500 mt-1">Where should we send your fiat settlements?</p>
+              <p className="text-[18px] font-bold text-on-background">Settlement Information</p>
+              <p className="text-[13px] text-on-surface-variant">Where should we send your fiat settlements?</p>
             </div>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Primary UPI VPA</label>
-                <div className="flex">
-                  <span className="inline-flex items-center px-3 border border-r-0 border-gray-200 bg-gray-50 text-gray-500 rounded-l-md text-sm">
-                    UPI
-                  </span>
-                  <input 
-                    name="defaultUpiVpa"
-                    value={formData.defaultUpiVpa}
-                    onChange={updateForm}
-                    className="w-full px-3 py-2 border rounded-r-md outline-none focus:ring-1 focus:ring-indigo-500" 
-                    placeholder="merchant@bank" 
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  All crypto payments will be automatically swapped to INR and settled to this VPA.
-                </p>
-              </div>
-            </div>
+            <Field label="Primary UPI VPA">
+              <input
+                name="defaultUpiVpa"
+                value={formData.defaultUpiVpa}
+                onChange={updateForm}
+                className={inputCls}
+                placeholder="merchant@bank"
+              />
+            </Field>
+            <p className="text-[12px] text-on-surface-variant">
+              All crypto payments will be automatically swapped to INR and settled to this VPA.
+            </p>
 
-            <div className="flex justify-between pt-4">
-              <button 
+            {submitMutation.isError && (
+              <p className="text-error text-[13px]">
+                {(submitMutation.error as Error).message || "An error occurred while submitting."}
+              </p>
+            )}
+
+            <div className="flex gap-2">
+              <button
                 onClick={prevStep}
                 disabled={submitMutation.isPending}
-                className="px-6 py-2 border border-gray-200 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50"
+                className="flex-1 py-3.5 rounded-full bg-surface-container-lowest border border-outline-variant text-on-background font-semibold disabled:opacity-50"
               >
                 Back
               </button>
-              <button 
+              <button
                 onClick={() => submitMutation.mutate()}
                 disabled={!formData.defaultUpiVpa || submitMutation.isPending}
-                className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+                className="flex-1 py-3.5 rounded-full bg-primary text-on-primary font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform"
               >
-                {submitMutation.isPending ? "Submitting..." : "Submit Application"}
+                {submitMutation.isPending ? "Submitting…" : "Submit"}
               </button>
             </div>
-            
-            {submitMutation.isError && (
-              <div className="p-3 bg-red-50 text-red-700 rounded-md text-sm mt-4">
-                {(submitMutation.error as Error).message || "An error occurred while submitting."}
-              </div>
-            )}
           </div>
         )}
 
+        {/* Step 4: KYC */}
         {step === 4 && (
-          <div className="p-8 space-y-6">
+          <div className="space-y-4">
             <div>
-              <h2 className="text-xl font-bold">KYC Verification</h2>
-              <p className="text-sm text-gray-500 mt-1">Complete your identity verification to start accepting payments.</p>
-            </div>
-            
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-              <KycOnboarding 
-                onClose={() => {
-                  // After KYC closes, move to success
-                  setStep(5);
-                }} 
-              />
-            </div>
-            
-            <div className="flex justify-between pt-4">
-              <button 
-                onClick={() => setStep(5)}
-                className="px-6 py-2 border border-gray-200 text-gray-500 rounded-lg font-medium hover:bg-gray-50"
-              >
-                Skip for now
-              </button>
-            </div>
-          </div>
-        )}
-
-        {step === 5 && (
-          <div className="p-12 text-center space-y-6">
-            <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-8 h-8" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold">Application Submitted</h2>
-              <p className="text-gray-500 mt-2 max-w-md mx-auto">
-                Your merchant application for <strong>{formData.legalName}</strong> has been received. Our admin team will review it shortly.
+              <p className="text-[18px] font-bold text-on-background">KYC Verification</p>
+              <p className="text-[13px] text-on-surface-variant">
+                Complete your identity verification to start accepting payments.
               </p>
             </div>
-            <div className="pt-4">
-              <button 
-                onClick={() => router.push("/dashboard")}
-                className="px-6 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800"
-              >
-                Go to Dashboard
-              </button>
+            <KycOnboarding onClose={() => setStep(5)} />
+            <button
+              onClick={() => setStep(5)}
+              className="w-full py-3.5 rounded-full bg-surface-container-lowest border border-outline-variant text-on-surface-variant font-semibold"
+            >
+              Skip for now
+            </button>
+          </div>
+        )}
+
+        {/* Step 5: Success */}
+        {step === 5 && (
+          <div className="pt-8 flex flex-col items-center text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-secondary-container flex items-center justify-center">
+              <span className="material-symbols-outlined text-primary text-[36px]">check_circle</span>
             </div>
+            <div>
+              <p className="text-[20px] font-bold text-on-background">Application Submitted</p>
+              <p className="text-[14px] text-on-surface-variant mt-2 max-w-xs">
+                Your merchant application for <strong>{formData.legalName}</strong> has been received. Our team will
+                review it shortly.
+              </p>
+            </div>
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="w-full py-3.5 rounded-full bg-primary text-on-primary font-semibold active:scale-[0.98] transition-transform"
+            >
+              Go to Dashboard
+            </button>
           </div>
         )}
       </div>

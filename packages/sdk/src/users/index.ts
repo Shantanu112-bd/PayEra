@@ -23,4 +23,12 @@ export class UsersSdk {
   async softDelete(userId: string): Promise<void> {
     return this.client.delete(`/users/${userId}`);
   }
+
+  async exportMyData(): Promise<any> {
+    return this.client.get<any>(`/users/me/export`);
+  }
+
+  async deleteMyAccount(): Promise<void> {
+    return this.client.delete(`/users/me`);
+  }
 }
