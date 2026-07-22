@@ -566,4 +566,102 @@ mod test {
             Err(Ok(MerchantRegistryError::NoPendingAdmin))
         );
     }
+
+    // ── TIER 5 ──────────────────────────────────────────────────────────────
+
+    // T5.1: every privileged entrypoint must reject a call with no auth present.
+    // An unauthorized require_auth() surfaces as Err(Err(_)) (host auth abort),
+    // distinct from a domain Err(Ok(Error)). setup() uses mock_all_auths; we
+    // clear the auth set with set_auths(&[]) immediately before the guarded call.
+    #[test]
+    fn negative_auth_admin_only_entrypoints() {
+        let (env, client, _admin, owner, merchant_id) = setup();
+        // Seed an approved merchant so status-changing calls reach the auth gate.
+        client.register_merchant(&merchant_id, &owner, &bytes(&env, 2), &bytes(&env, 3));
+
+        env.set_auths(&[]);
+        assert!(client.try_pause().is_err());
+        assert!(client.try_unpause().is_err());
+        assert!(client.try_set_admin(&owner).is_err());
+        assert!(client
+            .try_register_merchant(&bytes(&env, 9), &owner, &bytes(&env, 2), &bytes(&env, 3))
+            .is_err());
+        assert!(client.try_approve_merchant(&merchant_id).is_err());
+        assert!(client.try_suspend_merchant(&merchant_id).is_err());
+        assert!(client.try_reject_merchant(&merchant_id).is_err());
+    }
+
+    // T5.1: owner-gated entrypoints reject a caller who is not the owner (no auth).
+    #[test]
+    fn negative_auth_owner_gated_entrypoints() {
+        let (env, client, _admin, owner, merchant_id) = setup();
+        client.register_merchant(&merchant_id, &owner, &bytes(&env, 2), &bytes(&env, 3));
+
+        env.set_auths(&[]);
+        assert!(client.try_update_metadata(&merchant_id, &bytes(&env, 7)).is_err());
+        assert!(client
+            .try_transfer_owner(&merchant_id, &Address::generate(&env))
+            .is_err());
+    }
+
+    // T5.1: accept_admin must require the PENDING admin's auth. With a proposal
+    // outstanding but no auth present, the call aborts (not NoPendingAdmin).
+    #[test]
+    fn negative_auth_accept_admin() {
+        let (env, client, _admin, owner, _merchant_id) = setup();
+        client.set_admin(&owner); // propose
+        env.set_auths(&[]);
+        assert!(client.try_accept_admin().is_err());
+    }
+
+    // T5.2: boundary — merchant lifecycle rejects illegal status transitions.
+    // approve() on an already-rejected merchant is InvalidStatus; reject() only
+    // from Pending; suspend() only from Approved.
+    #[test]
+    fn boundary_status_transitions() {
+        let (env, client, _admin, owner, merchant_id) = setup();
+        client.register_merchant(&merchant_id, &owner, &bytes(&env, 2), &bytes(&env, 3));
+
+        // Pending -> Rejected is allowed; then approve() must be refused.
+        client.reject_merchant(&merchant_id);
+        assert_eq!(
+            client.try_approve_merchant(&merchant_id),
+            Err(Ok(MerchantRegistryError::InvalidStatus))
+        );
+        // reject() again (now Rejected, not Pending) is refused.
+        assert_eq!(
+            client.try_reject_merchant(&merchant_id),
+            Err(Ok(MerchantRegistryError::InvalidStatus))
+        );
+    }
+
+    // T5.2: operations on a non-existent merchant surface MerchantNotFound.
+    #[test]
+    fn boundary_unknown_merchant() {
+        let (env, client, _admin, _owner, _merchant_id) = setup();
+        let ghost = bytes(&env, 200);
+        assert_eq!(
+            client.try_get_merchant(&ghost),
+            Err(Ok(MerchantRegistryError::MerchantNotFound))
+        );
+        assert_eq!(
+            client.try_approve_merchant(&ghost),
+            Err(Ok(MerchantRegistryError::MerchantNotFound))
+        );
+    }
+
+    // T5.3: invariant — a merchant is is_approved() IFF its status is Approved,
+    // across the full lifecycle. Property-style walk over the state machine.
+    #[test]
+    fn invariant_is_approved_tracks_status() {
+        let (env, client, _admin, owner, merchant_id) = setup();
+        client.register_merchant(&merchant_id, &owner, &bytes(&env, 2), &bytes(&env, 3));
+        assert!(!client.is_approved(&merchant_id)); // Pending
+
+        client.approve_merchant(&merchant_id);
+        assert!(client.is_approved(&merchant_id)); // Approved
+
+        client.suspend_merchant(&merchant_id);
+        assert!(!client.is_approved(&merchant_id)); // Suspended
+    }
 }

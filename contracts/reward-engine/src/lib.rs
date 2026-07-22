@@ -654,4 +654,87 @@ mod test {
             Err(Ok(RewardEngineError::Paused))
         );
     }
+
+    // ── TIER 5 ──────────────────────────────────────────────────────────────
+
+    // T5.1: admin-only entrypoints reject a call with no auth present. An
+    // unauthorized require_auth() surfaces as Err(Err(_)) (host auth abort).
+    #[test]
+    fn negative_auth_admin_only_entrypoints() {
+        let (env, reward_client, star_client, _admin, issuer, _recipient) = setup();
+        env.set_auths(&[]);
+        assert!(reward_client.try_pause().is_err());
+        assert!(reward_client.try_unpause().is_err());
+        assert!(reward_client.try_set_admin(&issuer).is_err());
+        assert!(reward_client.try_set_star_token(&star_client.address).is_err());
+        assert!(reward_client.try_set_issuer(&issuer, &true).is_err());
+    }
+
+    // T5.1: issue_* requires the ISSUER's auth. A valid, authorized issuer with
+    // no auth present must still be rejected (host auth abort, not Unauthorized).
+    #[test]
+    fn negative_auth_issue_reward() {
+        let (env, reward_client, _star_client, _admin, issuer, recipient) = setup();
+        env.set_auths(&[]);
+        assert!(reward_client
+            .try_issue_spend_reward(&issuer, &bytes(&env, 1), &recipient, &bytes(&env, 2), &10_000)
+            .is_err());
+    }
+
+    // T5.1: accept_admin requires the PENDING admin's auth even when a proposal
+    // is outstanding.
+    #[test]
+    fn negative_auth_accept_admin() {
+        let (env, reward_client, _star_client, _admin, issuer, _recipient) = setup();
+        reward_client.set_admin(&issuer); // propose
+        env.set_auths(&[]);
+        assert!(reward_client.try_accept_admin().is_err());
+    }
+
+    // T5.2: boundary — calculate_spend_reward. Below one ₹100 unit rounds to 0
+    // reward; exactly on the boundary yields the per-unit rate; non-positive is
+    // InvalidAmount.
+    #[test]
+    fn boundary_calculate_spend_reward() {
+        assert_eq!(RewardEngine::calculate_spend_reward(0), Err(RewardEngineError::InvalidAmount));
+        assert_eq!(RewardEngine::calculate_spend_reward(-1), Err(RewardEngineError::InvalidAmount));
+        assert_eq!(RewardEngine::calculate_spend_reward(9_999), Ok(0)); // just under ₹100
+        assert_eq!(RewardEngine::calculate_spend_reward(10_000), Ok(10)); // exactly ₹100
+    }
+
+    // T5.2: a spend reward that rounds to zero STAR must be refused, not minted.
+    #[test]
+    fn boundary_zero_reward_rejected() {
+        let (env, reward_client, _star_client, _admin, issuer, recipient) = setup();
+        assert_eq!(
+            reward_client.try_issue_spend_reward(
+                &issuer,
+                &bytes(&env, 1),
+                &recipient,
+                &bytes(&env, 2),
+                &9_999
+            ),
+            Err(Ok(RewardEngineError::InvalidAmount))
+        );
+    }
+
+    // T5.3: invariant — reward issuance is idempotent by reward_id AND the STAR
+    // minted equals exactly the calculated amount, once. Re-issuing the same id
+    // must not double-mint.
+    #[test]
+    fn invariant_issue_is_idempotent_and_mint_matches() {
+        let (env, reward_client, star_client, _admin, issuer, recipient) = setup();
+        let rid = bytes(&env, 1);
+
+        let minted = reward_client.issue_spend_reward(&issuer, &rid, &recipient, &bytes(&env, 2), &50_000);
+        assert_eq!(minted, 50);
+        assert_eq!(star_client.balance(&recipient), 50);
+
+        // Second issue with the SAME id is rejected and mints nothing more.
+        assert_eq!(
+            reward_client.try_issue_spend_reward(&issuer, &rid, &recipient, &bytes(&env, 2), &50_000),
+            Err(Ok(RewardEngineError::RewardAlreadyIssued))
+        );
+        assert_eq!(star_client.balance(&recipient), 50);
+    }
 }

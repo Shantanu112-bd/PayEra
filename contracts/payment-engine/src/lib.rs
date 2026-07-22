@@ -1140,4 +1140,206 @@ mod test {
             reward_engine::RewardKind::Spend
         );
     }
+
+    // ── TIER 5 ──────────────────────────────────────────────────────────────
+
+    // T5.1: admin-only entrypoints reject a call with no auth present. An
+    // unauthorized require_auth() surfaces as Err(Err(_)) (host auth abort).
+    #[test]
+    fn negative_auth_admin_only_entrypoints() {
+        let (env, client, registry, _admin, operator, _payer, _merchant_id) = setup();
+        env.set_auths(&[]);
+        assert!(client.try_pause().is_err());
+        assert!(client.try_unpause().is_err());
+        assert!(client.try_set_admin(&operator).is_err());
+        assert!(client.try_set_operator(&operator, &true).is_err());
+        assert!(client
+            .try_set_contracts(&registry.address, &registry.address)
+            .is_err());
+    }
+
+    // T5.1: operator-gated lifecycle entrypoints reject a call with no auth
+    // present, even for an operator that IS enabled.
+    #[test]
+    fn negative_auth_operator_gated_entrypoints() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        let payment_id = bytes(&env, 2);
+        // Create a payment (operator-authed under mock) so transitions reach the gate.
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+
+        env.set_auths(&[]);
+        assert!(client
+            .try_create_payment(
+                &operator,
+                &payer,
+                &bytes(&env, 3),
+                &merchant_id,
+                &AssetCode::USDC,
+                &50_000,
+                &bytes(&env, 4),
+                &bytes(&env, 5)
+            )
+            .is_err());
+        assert!(client
+            .try_quote_payment(&operator, &payment_id, &600, &600, &50)
+            .is_err());
+        assert!(client.try_mark_converted(&operator, &payment_id).is_err());
+        assert!(client.try_mark_settled(&operator, &payment_id).is_err());
+        assert!(client.try_issue_reward(&operator, &payment_id).is_err());
+        assert!(client.try_complete_payment(&operator, &payment_id).is_err());
+        assert!(client.try_fail_payment(&operator, &payment_id).is_err());
+    }
+
+    // T5.1: cancel_payment is gated on the PAYER's auth, not the operator's.
+    #[test]
+    fn negative_auth_cancel_requires_payer() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        let payment_id = bytes(&env, 2);
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+        env.set_auths(&[]);
+        assert!(client.try_cancel_payment(&payer, &payment_id).is_err());
+    }
+
+    // T5.1: accept_admin requires the PENDING admin's auth even with a proposal
+    // outstanding.
+    #[test]
+    fn negative_auth_accept_admin() {
+        let (env, client, _registry, _admin, operator, _payer, _merchant_id) = setup();
+        client.set_admin(&operator); // propose
+        env.set_auths(&[]);
+        assert!(client.try_accept_admin().is_err());
+    }
+
+    // T5.2: boundary — create_payment rejects non-positive amounts.
+    #[test]
+    fn boundary_non_positive_amount() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        assert_eq!(
+            client.try_create_payment(
+                &operator,
+                &payer,
+                &bytes(&env, 2),
+                &merchant_id,
+                &AssetCode::USDC,
+                &0,
+                &bytes(&env, 4),
+                &bytes(&env, 5)
+            ),
+            Err(Ok(PaymentEngineError::InvalidAmount))
+        );
+    }
+
+    // T5.2: boundary — quote_payment rejects non-positive asset/usdc amounts and
+    // a negative network fee.
+    #[test]
+    fn boundary_quote_rejects_bad_values() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        let payment_id = bytes(&env, 2);
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+        assert_eq!(
+            client.try_quote_payment(&operator, &payment_id, &0, &600, &50),
+            Err(Ok(PaymentEngineError::InvalidAmount))
+        );
+        assert_eq!(
+            client.try_quote_payment(&operator, &payment_id, &600, &600, &-1),
+            Err(Ok(PaymentEngineError::InvalidAmount))
+        );
+    }
+
+    // T5.2: boundary — a duplicate payment_id is rejected on the second create.
+    #[test]
+    fn boundary_duplicate_payment_id() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        let payment_id = bytes(&env, 2);
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+        assert_eq!(
+            client.try_create_payment(
+                &operator,
+                &payer,
+                &payment_id,
+                &merchant_id,
+                &AssetCode::USDC,
+                &50_000,
+                &bytes(&env, 4),
+                &bytes(&env, 5)
+            ),
+            Err(Ok(PaymentEngineError::PaymentAlreadyExists))
+        );
+    }
+
+    // T5.3: invariant — the payment state machine only advances in order. Every
+    // out-of-order transition from the freshly-Created state is InvalidStatus.
+    #[test]
+    fn invariant_state_machine_ordering() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        let payment_id = bytes(&env, 2);
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+        // From Created you cannot skip ahead to convert/settle/reward/complete.
+        assert_eq!(
+            client.try_mark_converted(&operator, &payment_id),
+            Err(Ok(PaymentEngineError::InvalidStatus))
+        );
+        assert_eq!(
+            client.try_mark_settled(&operator, &payment_id),
+            Err(Ok(PaymentEngineError::InvalidStatus))
+        );
+        assert_eq!(
+            client.try_issue_reward(&operator, &payment_id),
+            Err(Ok(PaymentEngineError::InvalidStatus))
+        );
+        assert_eq!(
+            client.try_complete_payment(&operator, &payment_id),
+            Err(Ok(PaymentEngineError::InvalidStatus))
+        );
+
+        // The correct next step (quote) succeeds, proving the guard is ordering,
+        // not a blanket refusal.
+        client.quote_payment(&operator, &payment_id, &600, &600, &50);
+        assert_eq!(client.get_payment(&payment_id).status, PaymentStatus::Quoted);
+    }
 }

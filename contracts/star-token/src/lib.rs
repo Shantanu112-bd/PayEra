@@ -1083,4 +1083,113 @@ mod test {
         assert_eq!(burned, 0);
         assert_eq!(client.total_supply(), 10_000);
     }
+
+    // ── TIER 5 ──────────────────────────────────────────────────────────────
+
+    // T5.1: admin-only entrypoints reject a call with no auth present. An
+    // unauthorized require_auth() surfaces as Err(Err(_)) (host auth abort).
+    #[test]
+    fn negative_auth_admin_only_entrypoints() {
+        let (env, client, _admin, alice, bob) = setup();
+        env.set_auths(&[]);
+        assert!(client.try_pause().is_err());
+        assert!(client.try_unpause().is_err());
+        assert!(client.try_set_admin(&alice).is_err());
+        assert!(client.try_set_minter(&alice, &true).is_err());
+        assert!(client.try_set_authorized(&alice, &false).is_err());
+        assert!(client.try_set_fee_burn_config(&true, &100, &bob).is_err());
+        assert!(client.try_mint(&alice, &10).is_err());
+    }
+
+    // T5.1: value-moving entrypoints require the funds-holder / spender / minter
+    // auth. Each must abort with no auth present.
+    #[test]
+    fn negative_auth_value_moving_entrypoints() {
+        let (env, client, admin, alice, bob) = setup();
+        client.mint(&alice, &1_000); // give alice a balance (admin-authed under mock)
+        env.set_auths(&[]);
+        assert!(client
+            .try_transfer(&alice, MuxedAddress::from(bob.clone()), &10)
+            .is_err());
+        assert!(client.try_approve(&alice, &bob, &10, &10_000).is_err());
+        assert!(client.try_transfer_from(&bob, &alice, &bob, &10).is_err());
+        assert!(client.try_burn(&alice, &10).is_err());
+        assert!(client.try_burn_from(&bob, &alice, &10).is_err());
+        assert!(client.try_mint_from_minter(&admin, &alice, &10).is_err());
+    }
+
+    // T5.1: accept_admin requires the PENDING admin's auth even with a proposal
+    // outstanding.
+    #[test]
+    fn negative_auth_accept_admin() {
+        let (env, client, _admin, alice, _bob) = setup();
+        client.set_admin(&alice); // propose
+        env.set_auths(&[]);
+        assert!(client.try_accept_admin().is_err());
+    }
+
+    // T5.2: boundary — supply cap. Minting exactly to the cap succeeds; one over
+    // the cap is refused.
+    #[test]
+    fn boundary_supply_cap() {
+        let (_env, client, _admin, alice, _bob) = setup();
+        client.mint(&alice, &1_000_000); // exactly max_supply
+        assert_eq!(client.total_supply(), 1_000_000);
+        assert_eq!(
+            client.try_mint(&alice, &1),
+            Err(Ok(StarTokenError::SupplyCapExceeded))
+        );
+    }
+
+    // T5.2: boundary — non-positive amounts are rejected on mint/transfer/burn.
+    #[test]
+    fn boundary_non_positive_amounts() {
+        let (env, client, _admin, alice, bob) = setup();
+        client.mint(&alice, &100);
+        assert_eq!(client.try_mint(&alice, &0), Err(Ok(StarTokenError::InvalidAmount)));
+        assert_eq!(client.try_mint(&alice, &-1), Err(Ok(StarTokenError::InvalidAmount)));
+        assert_eq!(
+            client.try_transfer(&alice, MuxedAddress::from(bob), &0),
+            Err(Ok(StarTokenError::InvalidAmount))
+        );
+        assert_eq!(client.try_burn(&alice, &-5), Err(Ok(StarTokenError::InvalidAmount)));
+    }
+
+    // T5.2: boundary — spending more than the balance / allowance is refused.
+    #[test]
+    fn boundary_insufficient_balance_and_allowance() {
+        let (env, client, _admin, alice, bob) = setup();
+        client.mint(&alice, &50);
+        assert_eq!(
+            client.try_transfer(&alice, MuxedAddress::from(bob.clone()), &51),
+            Err(Ok(StarTokenError::InsufficientBalance))
+        );
+        // Allowance of 10, spend 11.
+        client.approve(&alice, &bob, &10, &10_000);
+        assert_eq!(
+            client.try_transfer_from(&bob, &alice, &bob, &11),
+            Err(Ok(StarTokenError::InsufficientAllowance))
+        );
+    }
+
+    // T5.3: invariant — total_supply equals the sum of mints minus burns, and a
+    // transfer is supply-neutral. Walk mint -> transfer -> burn and check.
+    #[test]
+    fn invariant_supply_conservation() {
+        let (env, client, _admin, alice, bob) = setup();
+        client.mint(&alice, &100);
+        assert_eq!(client.total_supply(), 100);
+
+        // Transfer moves value but does NOT change supply.
+        client.transfer(&alice, MuxedAddress::from(bob.clone()), &40);
+        assert_eq!(client.balance(&alice), 60);
+        assert_eq!(client.balance(&bob), 40);
+        assert_eq!(client.total_supply(), 100);
+
+        // Burn decreases supply by exactly the burned amount.
+        client.burn(&bob, &10);
+        assert_eq!(client.balance(&bob), 30);
+        assert_eq!(client.total_supply(), 90);
+        assert_eq!(client.balance(&alice) + client.balance(&bob), client.total_supply());
+    }
 }
