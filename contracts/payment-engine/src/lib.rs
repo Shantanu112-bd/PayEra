@@ -23,6 +23,10 @@ pub trait RewardEngineInterface {
     ) -> i128;
 }
 
+/// Instance-storage TTL management (see merchant-registry for rationale).
+const INSTANCE_BUMP_THRESHOLD: u32 = 518_400; // ~30 days of ledgers
+const INSTANCE_BUMP_AMOUNT: u32 = 1_036_800; // ~60 days of ledgers
+
 #[contract]
 pub struct PaymentEngine;
 
@@ -145,6 +149,7 @@ impl PaymentEngine {
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Operator(admin.clone()), 100, 518400);
+        bump_instance(&env);
         PaymentConfigEvent {
             action: symbol_short!("init"),
             account: admin.clone(),
@@ -158,6 +163,13 @@ impl PaymentEngine {
     pub fn admin(env: Env) -> Result<Address, PaymentEngineError> {
         require_initialized(&env)?;
         Ok(read_admin(&env))
+    }
+
+    /// Permissionless: extend the instance-storage TTL. Anyone may call this.
+    pub fn heartbeat(env: Env) -> Result<(), PaymentEngineError> {
+        require_initialized(&env)?;
+        bump_instance(&env);
+        Ok(())
     }
 
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), PaymentEngineError> {
@@ -397,18 +409,31 @@ impl PaymentEngine {
         let reward_engine = read_reward_engine(&env);
         let reward_client = RewardEngineClient::new(&env, &reward_engine);
         let issuer = env.current_contract_address();
-        let amount = reward_client.issue_spend_reward(
+        // T2.2: use the non-trapping try_ variant. If the reward engine reverts
+        // (e.g. STAR supply cap reached, reward engine paused), a *settled*
+        // payment must still be able to reach a terminal state instead of being
+        // permanently trapped in Settled. On failure we record star_reward = 0
+        // and emit a distinct "rewarderr" event so the shortfall is auditable;
+        // the payment still advances to Rewarded and can be completed.
+        let amount = match reward_client.try_issue_spend_reward(
             &issuer,
             &payment.reward_id,
             &payment.payer,
             &payment.payment_id,
             &payment.amount_in_paise,
-        );
+        ) {
+            Ok(Ok(amount)) => amount,
+            _ => 0,
+        };
         payment.star_reward = amount;
         payment.status = PaymentStatus::Rewarded;
         touch_and_write(&env, &mut payment);
         PaymentEvent {
-            action: symbol_short!("reward"),
+            action: if amount > 0 {
+                symbol_short!("reward")
+            } else {
+                symbol_short!("rewarderr")
+            },
             payment_id,
             actor: operator,
             status: payment.status,
@@ -522,6 +547,12 @@ fn is_initialized(env: &Env) -> bool {
         .instance()
         .get(&DataKey::Initialized)
         .unwrap_or(false)
+}
+
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_AMOUNT);
 }
 
 fn require_initialized(env: &Env) -> Result<(), PaymentEngineError> {
@@ -680,6 +711,26 @@ mod test {
         }
     }
 
+    // A reward engine that always traps, mimicking STAR supply-cap exhaustion
+    // or a paused reward engine. Used to prove a settled payment is not
+    // permanently trapped when reward issuance fails (T2.2).
+    #[contract]
+    pub struct FailingRewardEngine;
+
+    #[contractimpl]
+    impl FailingRewardEngine {
+        pub fn issue_spend_reward(
+            _env: Env,
+            _issuer: Address,
+            _reward_id: BytesN<32>,
+            _recipient: Address,
+            _source_id: BytesN<32>,
+            _amount_in_paise: i128,
+        ) -> i128 {
+            panic!("reward engine unavailable (e.g. STAR supply cap reached)");
+        }
+    }
+
     fn bytes(env: &Env, seed: u8) -> BytesN<32> {
         BytesN::from_array(env, &[seed; 32])
     }
@@ -744,6 +795,69 @@ mod test {
         assert_eq!(reward, 50);
         assert_eq!(payment.status, PaymentStatus::Completed);
         assert_eq!(payment.star_reward, 50);
+    }
+
+    // T2.2: a settled payment must reach a terminal state even when the reward
+    // engine reverts (e.g. STAR supply cap reached). Before the fix, issue_reward
+    // used the trapping client call, so the whole tx reverted and the payment
+    // was permanently stuck in Settled. Now issue_reward records star_reward = 0
+    // and advances to Rewarded, allowing complete_payment to finish the flow.
+    #[test]
+    fn settled_payment_completes_when_reward_engine_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let registry_id = env.register(MockMerchantRegistry, ());
+        let failing_reward_id = env.register(FailingRewardEngine, ());
+        let payment_contract = env.register(PaymentEngine, ());
+        let client = PaymentEngineClient::new(&env, &payment_contract);
+        let registry = MockMerchantRegistryClient::new(&env, &registry_id);
+        let admin = Address::generate(&env);
+        let operator = Address::generate(&env);
+        let payer = Address::generate(&env);
+        let merchant_id = bytes(&env, 1);
+        client.initialize(&admin, &registry_id, &failing_reward_id);
+        client.set_operator(&operator, &true);
+        registry.set_approved(&merchant_id, &true);
+
+        let payment_id = bytes(&env, 2);
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 3),
+        );
+        client.quote_payment(&operator, &payment_id, &600, &600, &50);
+        client.mark_converted(&operator, &payment_id);
+        client.mark_settled(&operator, &payment_id);
+
+        // issue_reward must NOT trap even though the reward engine panics.
+        let reward = client.issue_reward(&operator, &payment_id);
+        assert_eq!(reward, 0);
+
+        // The payment can still be completed — it is not trapped in Settled.
+        client.complete_payment(&operator, &payment_id);
+        let payment = client.get_payment(&payment_id);
+        assert_eq!(payment.status, PaymentStatus::Completed);
+        assert_eq!(payment.star_reward, 0);
+    }
+
+    // T2.1: heartbeat() permissionlessly re-extends the instance TTL.
+    #[test]
+    fn heartbeat_extends_instance_ttl() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        use soroban_sdk::testutils::Ledger as _;
+        let (env, client, _registry, _admin, _operator, _payer, _merchant_id) = setup();
+        let contract_id = client.address.clone();
+
+        env.ledger().set_sequence_number(600_000);
+        client.heartbeat();
+
+        let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert_eq!(ttl, INSTANCE_BUMP_AMOUNT);
     }
 
     #[test]

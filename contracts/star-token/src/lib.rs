@@ -7,6 +7,10 @@ use soroban_sdk::{
 
 const STAR_DECIMALS: u32 = 0;
 
+/// Instance-storage TTL management (see merchant-registry for rationale).
+const INSTANCE_BUMP_THRESHOLD: u32 = 518_400; // ~30 days of ledgers
+const INSTANCE_BUMP_AMOUNT: u32 = 1_036_800; // ~60 days of ledgers
+
 #[contract]
 pub struct StarToken;
 
@@ -119,6 +123,7 @@ impl StarToken {
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Minter(admin.clone()), 100, 518400);
+        bump_instance(&env);
 
         StarEvent {
             action: symbol_short!("init"),
@@ -134,6 +139,13 @@ impl StarToken {
     pub fn admin(env: Env) -> Result<Address, StarTokenError> {
         require_initialized(&env)?;
         Ok(read_admin(&env))
+    }
+
+    /// Permissionless: extend the instance-storage TTL. Anyone may call this.
+    pub fn heartbeat(env: Env) -> Result<(), StarTokenError> {
+        require_initialized(&env)?;
+        bump_instance(&env);
+        Ok(())
     }
 
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), StarTokenError> {
@@ -582,6 +594,12 @@ fn is_initialized(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+}
+
 fn require_initialized(env: &Env) -> Result<(), StarTokenError> {
     if !is_initialized(env) {
         return Err(StarTokenError::NotInitialized);
@@ -803,6 +821,21 @@ mod test {
         assert_eq!(client.symbol(), String::from_str(&client.env, "STAR"));
         assert_eq!(client.total_supply(), 0);
         assert!(client.is_minter(&admin));
+    }
+
+    // T2.1: heartbeat() permissionlessly re-extends the instance TTL.
+    #[test]
+    fn heartbeat_extends_instance_ttl() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        use soroban_sdk::testutils::Ledger as _;
+        let (env, client, _admin, _alice, _bob) = setup();
+        let contract_id = client.address.clone();
+
+        env.ledger().set_sequence_number(600_000);
+        client.heartbeat();
+
+        let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert_eq!(ttl, INSTANCE_BUMP_AMOUNT);
     }
 
     #[test]

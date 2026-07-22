@@ -5,6 +5,13 @@ use soroban_sdk::{
     BytesN, Env, Symbol,
 };
 
+/// Instance-storage TTL management. The instance entry holds admin, pause flag
+/// and init marker; if it expires the contract becomes unusable. We bump it on
+/// initialize() and expose a permissionless heartbeat() so anyone can keep the
+/// instance alive without needing admin auth.
+const INSTANCE_BUMP_THRESHOLD: u32 = 518_400; // ~30 days of ledgers
+const INSTANCE_BUMP_AMOUNT: u32 = 1_036_800; // ~60 days of ledgers
+
 #[contract]
 pub struct MerchantRegistry;
 
@@ -84,6 +91,7 @@ impl MerchantRegistry {
         env.storage().instance().set(&DataKey::Initialized, &true);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Paused, &false);
+        bump_instance(&env);
         RegistryConfigEvent {
             action: symbol_short!("init"),
             account: admin.clone(),
@@ -97,6 +105,14 @@ impl MerchantRegistry {
     pub fn admin(env: Env) -> Result<Address, MerchantRegistryError> {
         require_initialized(&env)?;
         Ok(read_admin(&env))
+    }
+
+    /// Permissionless: extend the instance-storage TTL so the contract's core
+    /// state (admin, pause flag) cannot expire. Anyone may call this.
+    pub fn heartbeat(env: Env) -> Result<(), MerchantRegistryError> {
+        require_initialized(&env)?;
+        bump_instance(&env);
+        Ok(())
     }
 
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), MerchantRegistryError> {
@@ -320,6 +336,12 @@ fn is_initialized(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+}
+
 fn require_initialized(env: &Env) -> Result<(), MerchantRegistryError> {
     if !is_initialized(env) {
         return Err(MerchantRegistryError::NotInitialized);
@@ -463,5 +485,30 @@ mod test {
             client.try_register_merchant(&merchant_id, &owner, &bytes(&env, 2), &bytes(&env, 3)),
             Err(Ok(MerchantRegistryError::Paused))
         );
+    }
+
+    // T2.1: heartbeat() is permissionless and pushes the instance-storage
+    // live-until ledger out to (current + INSTANCE_BUMP_AMOUNT). Before this
+    // change nothing extended the instance TTL after initialize(), so the
+    // contract's core state could expire and brick the contract.
+    #[test]
+    fn heartbeat_extends_instance_ttl() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        use soroban_sdk::testutils::Ledger as _;
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(MerchantRegistry, ());
+        let client = MerchantRegistryClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        // Advance far enough that the initialize() bump has decayed below the
+        // heartbeat threshold, so heartbeat() must actually re-extend the TTL.
+        env.ledger().set_sequence_number(600_000);
+
+        client.heartbeat();
+
+        let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert_eq!(ttl, INSTANCE_BUMP_AMOUNT);
     }
 }

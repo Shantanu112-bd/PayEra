@@ -9,6 +9,10 @@ const SPEND_REWARD_STAR_PER_100_INR: i128 = 10;
 const PAISE_PER_100_INR: i128 = 10_000;
 const REFERRAL_REWARD_STAR: i128 = 100;
 
+/// Instance-storage TTL management (see merchant-registry for rationale).
+const INSTANCE_BUMP_THRESHOLD: u32 = 518_400; // ~30 days of ledgers
+const INSTANCE_BUMP_AMOUNT: u32 = 1_036_800; // ~60 days of ledgers
+
 #[contractclient(name = "StarTokenClient")]
 pub trait StarTokenInterface {
     fn mint_from_minter(env: Env, minter: Address, to: Address, amount: i128);
@@ -108,6 +112,7 @@ impl RewardEngine {
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::AuthorizedIssuer(admin.clone()), 100, 518400);
+        bump_instance(&env);
         RewardConfigEvent {
             action: symbol_short!("init"),
             account: admin.clone(),
@@ -121,6 +126,13 @@ impl RewardEngine {
     pub fn admin(env: Env) -> Result<Address, RewardEngineError> {
         require_initialized(&env)?;
         Ok(read_admin(&env))
+    }
+
+    /// Permissionless: extend the instance-storage TTL. Anyone may call this.
+    pub fn heartbeat(env: Env) -> Result<(), RewardEngineError> {
+        require_initialized(&env)?;
+        bump_instance(&env);
+        Ok(())
     }
 
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), RewardEngineError> {
@@ -359,6 +371,12 @@ fn is_initialized(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+}
+
 fn require_initialized(env: &Env) -> Result<(), RewardEngineError> {
     if !is_initialized(env) {
         return Err(RewardEngineError::NotInitialized);
@@ -489,6 +507,21 @@ mod test {
         assert_eq!(RewardEngine::calculate_spend_reward(10000), Ok(10));
         assert_eq!(RewardEngine::calculate_spend_reward(50000), Ok(50));
         assert_eq!(RewardEngine::calculate_spend_reward(9999), Ok(0));
+    }
+
+    // T2.1: heartbeat() permissionlessly re-extends the instance TTL.
+    #[test]
+    fn heartbeat_extends_instance_ttl() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        use soroban_sdk::testutils::Ledger as _;
+        let (env, reward_client, _star_client, _admin, _issuer, _recipient) = setup();
+        let contract_id = reward_client.address.clone();
+
+        env.ledger().set_sequence_number(600_000);
+        reward_client.heartbeat();
+
+        let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert_eq!(ttl, INSTANCE_BUMP_AMOUNT);
     }
 
     #[test]
