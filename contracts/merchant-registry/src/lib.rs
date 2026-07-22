@@ -83,10 +83,12 @@ enum DataKey {
 
 #[contractimpl]
 impl MerchantRegistry {
-    pub fn initialize(env: Env, admin: Address) -> Result<(), MerchantRegistryError> {
-        if is_initialized(&env) {
-            return Err(MerchantRegistryError::AlreadyInitialized);
-        }
+    // T3.2: initialization is a __constructor, so it runs atomically as part of
+    // contract deployment in a single operation. This removes the deploy-then-
+    // initialize window in which an attacker could front-run initialize() and
+    // seize admin. A constructor also runs exactly once, so no re-init guard is
+    // needed. `Initialized` is still set so require_initialized() keeps working.
+    pub fn __constructor(env: Env, admin: Address) {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Initialized, &true);
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -99,7 +101,6 @@ impl MerchantRegistry {
             flag: true,
         }
         .publish(&env);
-        Ok(())
     }
 
     pub fn admin(env: Env) -> Result<Address, MerchantRegistryError> {
@@ -415,12 +416,11 @@ mod test {
     ) {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register(MerchantRegistry, ());
-        let client = MerchantRegistryClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
+        let contract_id = env.register(MerchantRegistry, (&admin,));
+        let client = MerchantRegistryClient::new(&env, &contract_id);
         let owner = Address::generate(&env);
         let merchant_id = bytes(&env, 1);
-        client.initialize(&admin);
         (env, client, admin, owner, merchant_id)
     }
 
@@ -497,12 +497,11 @@ mod test {
         use soroban_sdk::testutils::Ledger as _;
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register(MerchantRegistry, ());
-        let client = MerchantRegistryClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let contract_id = env.register(MerchantRegistry, (&admin,));
+        let client = MerchantRegistryClient::new(&env, &contract_id);
 
-        // Advance far enough that the initialize() bump has decayed below the
+        // Advance far enough that the constructor bump has decayed below the
         // heartbeat threshold, so heartbeat() must actually re-extend the TTL.
         env.ledger().set_sequence_number(600_000);
 

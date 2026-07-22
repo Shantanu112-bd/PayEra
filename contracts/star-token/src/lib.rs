@@ -1,8 +1,8 @@
 #![cfg_attr(target_family = "wasm", no_std)]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, symbol_short, Address, Env,
-    MuxedAddress, String, Symbol,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error,
+    symbol_short, Address, Env, MuxedAddress, String, Symbol,
 };
 
 const STAR_DECIMALS: u32 = 0;
@@ -82,18 +82,18 @@ pub struct AllowanceValue {
 
 #[contractimpl]
 impl StarToken {
-    pub fn initialize(
+    // T3.2: atomic deploy+init via __constructor (see merchant-registry). A
+    // constructor cannot return Err, so an invalid max_supply panics, which
+    // aborts the deploy atomically — the contract is never left half-created.
+    pub fn __constructor(
         env: Env,
         admin: Address,
         name: String,
         symbol: String,
         max_supply: i128,
-    ) -> Result<(), StarTokenError> {
-        if is_initialized(&env) {
-            return Err(StarTokenError::AlreadyInitialized);
-        }
+    ) {
         if max_supply <= 0 {
-            return Err(StarTokenError::InvalidAmount);
+            panic_with_error!(&env, StarTokenError::InvalidAmount);
         }
 
         admin.require_auth();
@@ -133,7 +133,6 @@ impl StarToken {
             flag: true,
         }
         .publish(&env);
-        Ok(())
     }
 
     pub fn admin(env: Env) -> Result<Address, StarTokenError> {
@@ -245,18 +244,25 @@ impl StarToken {
             return Ok(0);
         }
 
-        // Calculate fee amount
-        let fee_amount = (amount * config.fee_basis_points as i128) / 10000;
+        // T3.1: checked multiplication before the /10000 divide so a large
+        // `amount` can never overflow i128. Integer division rounds the fee
+        // DOWN (toward zero), so a fee is only ever charged on the whole-bps
+        // portion — dust below 1/10000 of `amount` burns nothing.
+        let fee_amount = amount
+            .checked_mul(config.fee_basis_points as i128)
+            .ok_or(StarTokenError::InvalidAmount)?
+            / 10000;
 
         if fee_amount == 0 {
             return Ok(0);
         }
 
-        // Transfer fee to recipient first
-        transfer_internal(&env, &from, &config.fee_recipient, fee_amount)?;
-
-        // Then burn from recipient
-        burn_internal(&env, &config.fee_recipient, fee_amount)?;
+        // T3.1: burn the fee DIRECTLY from `from`. The previous transfer-then-burn
+        // hop (from -> fee_recipient -> burn) served no purpose for a burn: it
+        // required fee_recipient to be authorized, could revert mid-way leaving a
+        // partial transfer, and momentarily parked user funds in a third account.
+        // burn_internal decrements `from`'s balance and total supply atomically.
+        burn_internal(&env, &from, fee_amount)?;
 
         StarEvent {
             action: symbol_short!("burnfee"),
@@ -731,9 +737,12 @@ fn burn_internal(env: &Env, from: &Address, amount: i128) -> Result<(), StarToke
     require_authorized(env, from)?;
     sub_balance(env, from, amount)?;
     let supply = read_total_supply(env);
+    let next_supply = supply
+        .checked_sub(amount)
+        .ok_or(StarTokenError::InvalidAmount)?;
     env.storage()
         .instance()
-        .set(&DataKey::TotalSupply, &(supply - amount));
+        .set(&DataKey::TotalSupply, &next_supply);
     Ok(())
 }
 
@@ -796,18 +805,19 @@ mod test {
     fn setup() -> (Env, StarTokenClient<'static>, Address, Address, Address) {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register(StarToken, ());
-        let client = StarTokenClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
+        let contract_id = env.register(
+            StarToken,
+            (
+                &admin,
+                String::from_str(&env, "STAR Token"),
+                String::from_str(&env, "STAR"),
+                1_000_000_i128,
+            ),
+        );
+        let client = StarTokenClient::new(&env, &contract_id);
         let alice = Address::generate(&env);
         let bob = Address::generate(&env);
-
-        client.initialize(
-            &admin,
-            &String::from_str(&env, "STAR Token"),
-            &String::from_str(&env, "STAR"),
-            &1_000_000,
-        );
 
         (env, client, admin, alice, bob)
     }
@@ -955,5 +965,68 @@ mod test {
             client.try_mint(&bob, &10),
             Err(Ok(StarTokenError::AccountNotAuthorized))
         );
+    }
+
+    // ── TIER 3 ──────────────────────────────────────────────────────────────
+
+    // T3.1: burn_fee burns the bps fee DIRECTLY from `from` and decreases total
+    // supply by exactly the fee. No transfer-then-burn hop, so fee_recipient
+    // does NOT need a balance or authorization for the burn to succeed.
+    #[test]
+    fn burn_fee_burns_from_payer_and_decreases_supply() {
+        let (env, client, admin, alice, _bob) = setup();
+        let recipient = Address::generate(&env);
+        client.mint(&alice, &10_000);
+        assert_eq!(client.total_supply(), 10_000);
+
+        // 250 bps = 2.5% of 10_000 = 250.
+        client.set_fee_burn_config(&true, &250, &recipient);
+        let _ = admin;
+
+        let burned = client.burn_fee(&alice, &10_000);
+        assert_eq!(burned, 250);
+        assert_eq!(client.balance(&alice), 9_750); // fee removed from payer
+        assert_eq!(client.balance(&recipient), 0); // recipient never received it
+        assert_eq!(client.total_supply(), 9_750); // supply dropped by the fee
+    }
+
+    // T3.1 bounds: fee_basis_points is capped at 10000 (100%) by
+    // set_fee_burn_config; anything larger is rejected.
+    #[test]
+    fn set_fee_burn_config_rejects_bps_over_100_percent() {
+        let (env, client, _admin, _alice, _bob) = setup();
+        let recipient = Address::generate(&env);
+        assert_eq!(
+            client.try_set_fee_burn_config(&true, &10_001, &recipient),
+            Err(Ok(StarTokenError::InvalidAmount))
+        );
+        // exactly 10000 (100%) is allowed
+        client.set_fee_burn_config(&true, &10_000, &recipient);
+    }
+
+    // T3.1 rounding: integer division rounds the fee DOWN, so a sub-1-unit fee
+    // burns nothing and returns 0 (no-op, not an error).
+    #[test]
+    fn burn_fee_rounds_down_and_returns_zero_for_dust() {
+        let (env, client, _admin, alice, _bob) = setup();
+        let recipient = Address::generate(&env);
+        client.mint(&alice, &100);
+
+        // 1 bp of 100 = 100/10000 = 0.01 -> rounds down to 0.
+        client.set_fee_burn_config(&true, &1, &recipient);
+        let burned = client.burn_fee(&alice, &100);
+        assert_eq!(burned, 0);
+        assert_eq!(client.balance(&alice), 100); // untouched
+        assert_eq!(client.total_supply(), 100);
+    }
+
+    // T3.1: when fee burn is disabled, burn_fee is a no-op returning 0.
+    #[test]
+    fn burn_fee_disabled_is_noop() {
+        let (_env, client, _admin, alice, _bob) = setup();
+        client.mint(&alice, &10_000);
+        let burned = client.burn_fee(&alice, &10_000);
+        assert_eq!(burned, 0);
+        assert_eq!(client.total_supply(), 10_000);
     }
 }

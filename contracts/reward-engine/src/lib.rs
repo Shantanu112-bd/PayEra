@@ -91,14 +91,8 @@ enum DataKey {
 
 #[contractimpl]
 impl RewardEngine {
-    pub fn initialize(
-        env: Env,
-        admin: Address,
-        star_token: Address,
-    ) -> Result<(), RewardEngineError> {
-        if is_initialized(&env) {
-            return Err(RewardEngineError::AlreadyInitialized);
-        }
+    // T3.2: atomic deploy+init via __constructor (see merchant-registry).
+    pub fn __constructor(env: Env, admin: Address, star_token: Address) {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Initialized, &true);
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -120,7 +114,6 @@ impl RewardEngine {
             flag: true,
         }
         .publish(&env);
-        Ok(())
     }
 
     pub fn admin(env: Env) -> Result<Address, RewardEngineError> {
@@ -491,13 +484,12 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
         let star_id = env.register(MockStarToken, ());
-        let reward_id = env.register(RewardEngine, ());
+        let admin = Address::generate(&env);
+        let reward_id = env.register(RewardEngine, (&admin, &star_id));
         let reward_client = RewardEngineClient::new(&env, &reward_id);
         let star_client = MockStarTokenClient::new(&env, &star_id);
-        let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
         let recipient = Address::generate(&env);
-        reward_client.initialize(&admin, &star_id);
         reward_client.set_issuer(&issuer, &true);
         (env, reward_client, star_client, admin, issuer, recipient)
     }

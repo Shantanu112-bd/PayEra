@@ -124,15 +124,13 @@ enum DataKey {
 
 #[contractimpl]
 impl PaymentEngine {
-    pub fn initialize(
+    // T3.2: atomic deploy+init via __constructor (see merchant-registry).
+    pub fn __constructor(
         env: Env,
         admin: Address,
         merchant_registry: Address,
         reward_engine: Address,
-    ) -> Result<(), PaymentEngineError> {
-        if is_initialized(&env) {
-            return Err(PaymentEngineError::AlreadyInitialized);
-        }
+    ) {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Initialized, &true);
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -157,7 +155,6 @@ impl PaymentEngine {
             flag: true,
         }
         .publish(&env);
-        Ok(())
     }
 
     pub fn admin(env: Env) -> Result<Address, PaymentEngineError> {
@@ -748,14 +745,13 @@ mod test {
         env.mock_all_auths();
         let registry_id = env.register(MockMerchantRegistry, ());
         let reward_id = env.register(MockRewardEngine, ());
-        let payment_id = env.register(PaymentEngine, ());
+        let admin = Address::generate(&env);
+        let payment_id = env.register(PaymentEngine, (&admin, &registry_id, &reward_id));
         let payment_client = PaymentEngineClient::new(&env, &payment_id);
         let registry_client = MockMerchantRegistryClient::new(&env, &registry_id);
-        let admin = Address::generate(&env);
         let operator = Address::generate(&env);
         let payer = Address::generate(&env);
         let merchant_id = bytes(&env, 1);
-        payment_client.initialize(&admin, &registry_id, &reward_id);
         payment_client.set_operator(&operator, &true);
         registry_client.set_approved(&merchant_id, &true);
         (
@@ -808,14 +804,14 @@ mod test {
         env.mock_all_auths();
         let registry_id = env.register(MockMerchantRegistry, ());
         let failing_reward_id = env.register(FailingRewardEngine, ());
-        let payment_contract = env.register(PaymentEngine, ());
+        let admin = Address::generate(&env);
+        let payment_contract =
+            env.register(PaymentEngine, (&admin, &registry_id, &failing_reward_id));
         let client = PaymentEngineClient::new(&env, &payment_contract);
         let registry = MockMerchantRegistryClient::new(&env, &registry_id);
-        let admin = Address::generate(&env);
         let operator = Address::generate(&env);
         let payer = Address::generate(&env);
         let merchant_id = bytes(&env, 1);
-        client.initialize(&admin, &registry_id, &failing_reward_id);
         client.set_operator(&operator, &true);
         registry.set_approved(&merchant_id, &true);
 
@@ -1010,33 +1006,35 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let star_id = env.register(star_token::StarToken, ());
-        let registry_id = env.register(merchant_registry::MerchantRegistry, ());
-        let reward_id = env.register(reward_engine::RewardEngine, ());
-        let payment_id = env.register(PaymentEngine, ());
+        let admin = Address::generate(&env);
+
+        // T3.2: each contract is initialized atomically at registration via its
+        // __constructor. reward depends on star; payment depends on registry +
+        // reward, so they are registered in dependency order.
+        let star_id = env.register(
+            star_token::StarToken,
+            (
+                &admin,
+                soroban_sdk::String::from_str(&env, "STAR Token"),
+                soroban_sdk::String::from_str(&env, "STAR"),
+                1_000_000_i128,
+            ),
+        );
+        let registry_id = env.register(merchant_registry::MerchantRegistry, (&admin,));
+        let reward_id = env.register(reward_engine::RewardEngine, (&admin, &star_id));
+        let payment_id = env.register(PaymentEngine, (&admin, &registry_id, &reward_id));
 
         let star = star_token::StarTokenClient::new(&env, &star_id);
         let registry = merchant_registry::MerchantRegistryClient::new(&env, &registry_id);
         let reward = reward_engine::RewardEngineClient::new(&env, &reward_id);
         let payment = PaymentEngineClient::new(&env, &payment_id);
 
-        let admin = Address::generate(&env);
         let operator = Address::generate(&env);
         let owner = Address::generate(&env);
         let payer = Address::generate(&env);
         let merchant_id = bytes(&env, 1);
         let chain_payment_id = bytes(&env, 2);
         let reward_record_id = bytes(&env, 3);
-
-        star.initialize(
-            &admin,
-            &soroban_sdk::String::from_str(&env, "STAR Token"),
-            &soroban_sdk::String::from_str(&env, "STAR"),
-            &1_000_000,
-        );
-        registry.initialize(&admin);
-        reward.initialize(&admin, &star_id);
-        payment.initialize(&admin, &registry_id, &reward_id);
 
         star.set_minter(&reward_id, &true);
         reward.set_issuer(&payment_id, &true);
