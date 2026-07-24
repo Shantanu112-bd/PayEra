@@ -5,6 +5,13 @@ use soroban_sdk::{
     BytesN, Env, Symbol,
 };
 
+/// Instance-storage TTL management. The instance entry holds admin, pause flag
+/// and init marker; if it expires the contract becomes unusable. We bump it on
+/// initialize() and expose a permissionless heartbeat() so anyone can keep the
+/// instance alive without needing admin auth.
+const INSTANCE_BUMP_THRESHOLD: u32 = 518_400; // ~30 days of ledgers
+const INSTANCE_BUMP_AMOUNT: u32 = 1_036_800; // ~60 days of ledgers
+
 #[contract]
 pub struct MerchantRegistry;
 
@@ -19,6 +26,7 @@ pub enum MerchantRegistryError {
     MerchantNotFound = 5,
     InvalidStatus = 6,
     Unauthorized = 7,
+    NoPendingAdmin = 8,
 }
 
 #[contracttype]
@@ -72,18 +80,22 @@ enum DataKey {
     Initialized,
     Merchant(BytesN<32>),
     Paused,
+    PendingAdmin,
 }
 
 #[contractimpl]
 impl MerchantRegistry {
-    pub fn initialize(env: Env, admin: Address) -> Result<(), MerchantRegistryError> {
-        if is_initialized(&env) {
-            return Err(MerchantRegistryError::AlreadyInitialized);
-        }
+    // T3.2: initialization is a __constructor, so it runs atomically as part of
+    // contract deployment in a single operation. This removes the deploy-then-
+    // initialize window in which an attacker could front-run initialize() and
+    // seize admin. A constructor also runs exactly once, so no re-init guard is
+    // needed. `Initialized` is still set so require_initialized() keeps working.
+    pub fn __constructor(env: Env, admin: Address) {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Initialized, &true);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Paused, &false);
+        bump_instance(&env);
         RegistryConfigEvent {
             action: symbol_short!("init"),
             account: admin.clone(),
@@ -91,7 +103,6 @@ impl MerchantRegistry {
             flag: true,
         }
         .publish(&env);
-        Ok(())
     }
 
     pub fn admin(env: Env) -> Result<Address, MerchantRegistryError> {
@@ -99,15 +110,50 @@ impl MerchantRegistry {
         Ok(read_admin(&env))
     }
 
+    /// Permissionless: extend the instance-storage TTL so the contract's core
+    /// state (admin, pause flag) cannot expire. Anyone may call this.
+    pub fn heartbeat(env: Env) -> Result<(), MerchantRegistryError> {
+        require_initialized(&env)?;
+        bump_instance(&env);
+        Ok(())
+    }
+
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), MerchantRegistryError> {
         require_not_paused(&env)?;
         let admin = read_admin(&env);
         admin.require_auth();
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
         RegistryConfigEvent {
-            action: symbol_short!("admin"),
+            action: symbol_short!("adm_prop"),
             account: admin,
             counterparty: new_admin,
+            flag: true,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Second step of the two-step admin handoff: the proposed admin claims the
+    /// role by authorizing itself. This prevents handing admin to a mistyped or
+    /// uncontrolled address, since only a key that can actually sign for the
+    /// pending address can complete the transfer.
+    pub fn accept_admin(env: Env) -> Result<(), MerchantRegistryError> {
+        require_not_paused(&env)?;
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(MerchantRegistryError::NoPendingAdmin)?;
+        pending.require_auth();
+        let old_admin = read_admin(&env);
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        RegistryConfigEvent {
+            action: symbol_short!("admin"),
+            account: old_admin,
+            counterparty: pending,
             flag: true,
         }
         .publish(&env);
@@ -320,6 +366,12 @@ fn is_initialized(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+}
+
 fn require_initialized(env: &Env) -> Result<(), MerchantRegistryError> {
     if !is_initialized(env) {
         return Err(MerchantRegistryError::NotInitialized);
@@ -393,12 +445,11 @@ mod test {
     ) {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register(MerchantRegistry, ());
-        let client = MerchantRegistryClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
+        let contract_id = env.register(MerchantRegistry, (&admin,));
+        let client = MerchantRegistryClient::new(&env, &contract_id);
         let owner = Address::generate(&env);
         let merchant_id = bytes(&env, 1);
-        client.initialize(&admin);
         (env, client, admin, owner, merchant_id)
     }
 
@@ -463,5 +514,154 @@ mod test {
             client.try_register_merchant(&merchant_id, &owner, &bytes(&env, 2), &bytes(&env, 3)),
             Err(Ok(MerchantRegistryError::Paused))
         );
+    }
+
+    // T2.1: heartbeat() is permissionless and pushes the instance-storage
+    // live-until ledger out to (current + INSTANCE_BUMP_AMOUNT). Before this
+    // change nothing extended the instance TTL after initialize(), so the
+    // contract's core state could expire and brick the contract.
+    #[test]
+    fn heartbeat_extends_instance_ttl() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        use soroban_sdk::testutils::Ledger as _;
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(MerchantRegistry, (&admin,));
+        let client = MerchantRegistryClient::new(&env, &contract_id);
+
+        // Advance far enough that the constructor bump has decayed below the
+        // heartbeat threshold, so heartbeat() must actually re-extend the TTL.
+        env.ledger().set_sequence_number(600_000);
+
+        client.heartbeat();
+
+        let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert_eq!(ttl, INSTANCE_BUMP_AMOUNT);
+    }
+
+    // T4.1: admin handoff is two-step. propose_admin (set_admin) alone must NOT
+    // transfer the role — the current admin stays until the pending admin calls
+    // accept_admin. This prevents handing admin to a mistyped/uncontrolled key.
+    #[test]
+    fn two_step_admin_handoff() {
+        let (env, client, admin, _owner, _merchant_id) = setup();
+        let new_admin = Address::generate(&env);
+
+        // Step 1: propose. Admin is unchanged until accepted.
+        client.set_admin(&new_admin);
+        assert_eq!(client.admin(), admin);
+
+        // Step 2: the pending admin accepts and becomes admin.
+        client.accept_admin();
+        assert_eq!(client.admin(), new_admin);
+    }
+
+    // T4.1: accept_admin with no proposal outstanding is rejected.
+    #[test]
+    fn accept_admin_without_proposal_fails() {
+        let (_env, client, _admin, _owner, _merchant_id) = setup();
+        assert_eq!(
+            client.try_accept_admin(),
+            Err(Ok(MerchantRegistryError::NoPendingAdmin))
+        );
+    }
+
+    // ── TIER 5 ──────────────────────────────────────────────────────────────
+
+    // T5.1: every privileged entrypoint must reject a call with no auth present.
+    // An unauthorized require_auth() surfaces as Err(Err(_)) (host auth abort),
+    // distinct from a domain Err(Ok(Error)). setup() uses mock_all_auths; we
+    // clear the auth set with set_auths(&[]) immediately before the guarded call.
+    #[test]
+    fn negative_auth_admin_only_entrypoints() {
+        let (env, client, _admin, owner, merchant_id) = setup();
+        // Seed an approved merchant so status-changing calls reach the auth gate.
+        client.register_merchant(&merchant_id, &owner, &bytes(&env, 2), &bytes(&env, 3));
+
+        env.set_auths(&[]);
+        assert!(client.try_pause().is_err());
+        assert!(client.try_unpause().is_err());
+        assert!(client.try_set_admin(&owner).is_err());
+        assert!(client
+            .try_register_merchant(&bytes(&env, 9), &owner, &bytes(&env, 2), &bytes(&env, 3))
+            .is_err());
+        assert!(client.try_approve_merchant(&merchant_id).is_err());
+        assert!(client.try_suspend_merchant(&merchant_id).is_err());
+        assert!(client.try_reject_merchant(&merchant_id).is_err());
+    }
+
+    // T5.1: owner-gated entrypoints reject a caller who is not the owner (no auth).
+    #[test]
+    fn negative_auth_owner_gated_entrypoints() {
+        let (env, client, _admin, owner, merchant_id) = setup();
+        client.register_merchant(&merchant_id, &owner, &bytes(&env, 2), &bytes(&env, 3));
+
+        env.set_auths(&[]);
+        assert!(client.try_update_metadata(&merchant_id, &bytes(&env, 7)).is_err());
+        assert!(client
+            .try_transfer_owner(&merchant_id, &Address::generate(&env))
+            .is_err());
+    }
+
+    // T5.1: accept_admin must require the PENDING admin's auth. With a proposal
+    // outstanding but no auth present, the call aborts (not NoPendingAdmin).
+    #[test]
+    fn negative_auth_accept_admin() {
+        let (env, client, _admin, owner, _merchant_id) = setup();
+        client.set_admin(&owner); // propose
+        env.set_auths(&[]);
+        assert!(client.try_accept_admin().is_err());
+    }
+
+    // T5.2: boundary — merchant lifecycle rejects illegal status transitions.
+    // approve() on an already-rejected merchant is InvalidStatus; reject() only
+    // from Pending; suspend() only from Approved.
+    #[test]
+    fn boundary_status_transitions() {
+        let (env, client, _admin, owner, merchant_id) = setup();
+        client.register_merchant(&merchant_id, &owner, &bytes(&env, 2), &bytes(&env, 3));
+
+        // Pending -> Rejected is allowed; then approve() must be refused.
+        client.reject_merchant(&merchant_id);
+        assert_eq!(
+            client.try_approve_merchant(&merchant_id),
+            Err(Ok(MerchantRegistryError::InvalidStatus))
+        );
+        // reject() again (now Rejected, not Pending) is refused.
+        assert_eq!(
+            client.try_reject_merchant(&merchant_id),
+            Err(Ok(MerchantRegistryError::InvalidStatus))
+        );
+    }
+
+    // T5.2: operations on a non-existent merchant surface MerchantNotFound.
+    #[test]
+    fn boundary_unknown_merchant() {
+        let (env, client, _admin, _owner, _merchant_id) = setup();
+        let ghost = bytes(&env, 200);
+        assert_eq!(
+            client.try_get_merchant(&ghost),
+            Err(Ok(MerchantRegistryError::MerchantNotFound))
+        );
+        assert_eq!(
+            client.try_approve_merchant(&ghost),
+            Err(Ok(MerchantRegistryError::MerchantNotFound))
+        );
+    }
+
+    // T5.3: invariant — a merchant is is_approved() IFF its status is Approved,
+    // across the full lifecycle. Property-style walk over the state machine.
+    #[test]
+    fn invariant_is_approved_tracks_status() {
+        let (env, client, _admin, owner, merchant_id) = setup();
+        client.register_merchant(&merchant_id, &owner, &bytes(&env, 2), &bytes(&env, 3));
+        assert!(!client.is_approved(&merchant_id)); // Pending
+
+        client.approve_merchant(&merchant_id);
+        assert!(client.is_approved(&merchant_id)); // Approved
+
+        client.suspend_merchant(&merchant_id);
+        assert!(!client.is_approved(&merchant_id)); // Suspended
     }
 }

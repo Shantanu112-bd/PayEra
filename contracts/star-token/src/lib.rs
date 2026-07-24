@@ -1,11 +1,15 @@
 #![cfg_attr(target_family = "wasm", no_std)]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, symbol_short, Address, Env,
-    MuxedAddress, String, Symbol,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error,
+    symbol_short, Address, Env, MuxedAddress, String, Symbol,
 };
 
 const STAR_DECIMALS: u32 = 0;
+
+/// Instance-storage TTL management (see merchant-registry for rationale).
+const INSTANCE_BUMP_THRESHOLD: u32 = 518_400; // ~30 days of ledgers
+const INSTANCE_BUMP_AMOUNT: u32 = 1_036_800; // ~60 days of ledgers
 
 #[contract]
 pub struct StarToken;
@@ -23,6 +27,7 @@ pub enum StarTokenError {
     SupplyCapExceeded = 7,
     Paused = 8,
     AccountNotAuthorized = 9,
+    NoPendingAdmin = 10,
 }
 
 #[contracttype]
@@ -65,6 +70,7 @@ enum DataKey {
     Metadata,
     Minter(Address),
     Paused,
+    PendingAdmin,
     TotalSupply,
     FeeBurnConfig,
 }
@@ -78,18 +84,18 @@ pub struct AllowanceValue {
 
 #[contractimpl]
 impl StarToken {
-    pub fn initialize(
+    // T3.2: atomic deploy+init via __constructor (see merchant-registry). A
+    // constructor cannot return Err, so an invalid max_supply panics, which
+    // aborts the deploy atomically — the contract is never left half-created.
+    pub fn __constructor(
         env: Env,
         admin: Address,
         name: String,
         symbol: String,
         max_supply: i128,
-    ) -> Result<(), StarTokenError> {
-        if is_initialized(&env) {
-            return Err(StarTokenError::AlreadyInitialized);
-        }
+    ) {
         if max_supply <= 0 {
-            return Err(StarTokenError::InvalidAmount);
+            panic_with_error!(&env, StarTokenError::InvalidAmount);
         }
 
         admin.require_auth();
@@ -119,6 +125,7 @@ impl StarToken {
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Minter(admin.clone()), 100, 518400);
+        bump_instance(&env);
 
         StarEvent {
             action: symbol_short!("init"),
@@ -128,7 +135,6 @@ impl StarToken {
             flag: true,
         }
         .publish(&env);
-        Ok(())
     }
 
     pub fn admin(env: Env) -> Result<Address, StarTokenError> {
@@ -136,28 +142,72 @@ impl StarToken {
         Ok(read_admin(&env))
     }
 
+    /// Permissionless: extend the instance-storage TTL. Anyone may call this.
+    pub fn heartbeat(env: Env) -> Result<(), StarTokenError> {
+        require_initialized(&env)?;
+        bump_instance(&env);
+        Ok(())
+    }
+
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), StarTokenError> {
         require_not_paused(&env)?;
         let admin = read_admin(&env);
         admin.require_auth();
-
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
         env.storage()
-            .persistent()
-            .set(&DataKey::Authorized(new_admin.clone()), &true);
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Authorized(new_admin.clone()), 100, 518400);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Minter(new_admin.clone()), &true);
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Minter(new_admin.clone()), 100, 518400);
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
         StarEvent {
-            action: symbol_short!("admin"),
+            action: symbol_short!("adm_prop"),
             account: admin,
             counterparty: new_admin,
+            amount: 0,
+            flag: true,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Second step of the two-step admin handoff: the proposed admin claims the
+    /// role by authorizing itself, then the OUTGOING admin's mint/authorized
+    /// flags are revoked (T1.1) so a rotated-out key can no longer mint or move
+    /// funds. Skip revocation on self-rotation.
+    pub fn accept_admin(env: Env) -> Result<(), StarTokenError> {
+        require_not_paused(&env)?;
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(StarTokenError::NoPendingAdmin)?;
+        pending.require_auth();
+        let old_admin = read_admin(&env);
+
+        if old_admin != pending {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Minter(old_admin.clone()), &false);
+            env.storage()
+                .persistent()
+                .set(&DataKey::Authorized(old_admin.clone()), &false);
+        }
+
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Authorized(pending.clone()), &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Authorized(pending.clone()), 100, 518400);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Minter(pending.clone()), &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Minter(pending.clone()), 100, 518400);
+        StarEvent {
+            action: symbol_short!("admin"),
+            account: old_admin,
+            counterparty: pending,
             amount: 0,
             flag: true,
         }
@@ -221,18 +271,25 @@ impl StarToken {
             return Ok(0);
         }
 
-        // Calculate fee amount
-        let fee_amount = (amount * config.fee_basis_points as i128) / 10000;
+        // T3.1: checked multiplication before the /10000 divide so a large
+        // `amount` can never overflow i128. Integer division rounds the fee
+        // DOWN (toward zero), so a fee is only ever charged on the whole-bps
+        // portion — dust below 1/10000 of `amount` burns nothing.
+        let fee_amount = amount
+            .checked_mul(config.fee_basis_points as i128)
+            .ok_or(StarTokenError::InvalidAmount)?
+            / 10000;
 
         if fee_amount == 0 {
             return Ok(0);
         }
 
-        // Transfer fee to recipient first
-        transfer_internal(&env, &from, &config.fee_recipient, fee_amount)?;
-
-        // Then burn from recipient
-        burn_internal(&env, &config.fee_recipient, fee_amount)?;
+        // T3.1: burn the fee DIRECTLY from `from`. The previous transfer-then-burn
+        // hop (from -> fee_recipient -> burn) served no purpose for a burn: it
+        // required fee_recipient to be authorized, could revert mid-way leaving a
+        // partial transfer, and momentarily parked user funds in a third account.
+        // burn_internal decrements `from`'s balance and total supply atomically.
+        burn_internal(&env, &from, fee_amount)?;
 
         StarEvent {
             action: symbol_short!("burnfee"),
@@ -570,6 +627,12 @@ fn is_initialized(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+}
+
 fn require_initialized(env: &Env) -> Result<(), StarTokenError> {
     if !is_initialized(env) {
         return Err(StarTokenError::NotInitialized);
@@ -620,6 +683,15 @@ fn is_minter(env: &Env, id: &Address) -> bool {
         .unwrap_or(false)
 }
 
+// DELIBERATE POSTURE (audit finding H-2): STAR uses a FREEZE-LIST (blocklist),
+// NOT an allowlist. An address is authorized by DEFAULT; `set_authorized(x,
+// false)` freezes it (blocking transfer/mint/approve for that address). This is
+// intentional for a loyalty/rewards token that is minted broadly to consumers:
+// an allowlist would require pre-authorizing every recipient before they could
+// receive STAR, which is operationally infeasible. The default therefore is
+// `true` (authorized) on purpose. To move to an allowlist posture, change this
+// to `unwrap_or(false)` and authorize accounts explicitly at init / set_minter
+// / first receipt — and expect existing holders to be frozen until authorized.
 fn is_authorized(env: &Env, id: &Address) -> bool {
     env.storage()
         .persistent()
@@ -669,7 +741,12 @@ fn sub_balance(env: &Env, id: &Address, amount: i128) -> Result<(), StarTokenErr
     if current < amount {
         return Err(StarTokenError::InsufficientBalance);
     }
-    set_balance(env, id, current - amount);
+    // T4.2: checked_sub as defense-in-depth even though the guard above already
+    // proves current >= amount.
+    let next = current
+        .checked_sub(amount)
+        .ok_or(StarTokenError::InsufficientBalance)?;
+    set_balance(env, id, next);
     Ok(())
 }
 
@@ -692,9 +769,12 @@ fn burn_internal(env: &Env, from: &Address, amount: i128) -> Result<(), StarToke
     require_authorized(env, from)?;
     sub_balance(env, from, amount)?;
     let supply = read_total_supply(env);
+    let next_supply = supply
+        .checked_sub(amount)
+        .ok_or(StarTokenError::InvalidAmount)?;
     env.storage()
         .instance()
-        .set(&DataKey::TotalSupply, &(supply - amount));
+        .set(&DataKey::TotalSupply, &next_supply);
     Ok(())
 }
 
@@ -735,11 +815,16 @@ fn spend_allowance(
         return Err(StarTokenError::InsufficientAllowance);
     }
 
+    // T4.2: checked_sub as defense-in-depth (guard above proves amount fits).
+    let next_amount = allowance
+        .amount
+        .checked_sub(amount)
+        .ok_or(StarTokenError::InsufficientAllowance)?;
     let key = DataKey::Allowance(from.clone(), spender.clone());
     env.storage().persistent().set(
         &key,
         &AllowanceValue {
-            amount: allowance.amount - amount,
+            amount: next_amount,
             expiration_ledger: allowance.expiration_ledger,
         },
     );
@@ -757,18 +842,19 @@ mod test {
     fn setup() -> (Env, StarTokenClient<'static>, Address, Address, Address) {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register(StarToken, ());
-        let client = StarTokenClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
+        let contract_id = env.register(
+            StarToken,
+            (
+                &admin,
+                String::from_str(&env, "STAR Token"),
+                String::from_str(&env, "STAR"),
+                1_000_000_i128,
+            ),
+        );
+        let client = StarTokenClient::new(&env, &contract_id);
         let alice = Address::generate(&env);
         let bob = Address::generate(&env);
-
-        client.initialize(
-            &admin,
-            &String::from_str(&env, "STAR Token"),
-            &String::from_str(&env, "STAR"),
-            &1_000_000,
-        );
 
         (env, client, admin, alice, bob)
     }
@@ -782,6 +868,21 @@ mod test {
         assert_eq!(client.symbol(), String::from_str(&client.env, "STAR"));
         assert_eq!(client.total_supply(), 0);
         assert!(client.is_minter(&admin));
+    }
+
+    // T2.1: heartbeat() permissionlessly re-extends the instance TTL.
+    #[test]
+    fn heartbeat_extends_instance_ttl() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        use soroban_sdk::testutils::Ledger as _;
+        let (env, client, _admin, _alice, _bob) = setup();
+        let contract_id = client.address.clone();
+
+        env.ledger().set_sequence_number(600_000);
+        client.heartbeat();
+
+        let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert_eq!(ttl, INSTANCE_BUMP_AMOUNT);
     }
 
     #[test]
@@ -836,5 +937,259 @@ mod test {
             client.try_transfer(&alice, MuxedAddress::from(bob), &10),
             Err(Ok(StarTokenError::Paused))
         );
+    }
+
+    // ── TIER 1 ──────────────────────────────────────────────────────────────
+
+    // T1.1 + T4.1: after a two-step admin rotation the OLD admin must lose mint
+    // power. Before the T1.1 fix, Minter(old)=true persisted and the old key
+    // could still mint via mint_from_minter — a privilege-escalation. Revocation
+    // now happens on accept_admin, not on the propose step.
+    #[test]
+    fn set_admin_revokes_old_admin_mint_power() {
+        let (env, client, admin, alice, _bob) = setup();
+        let new_admin = Address::generate(&env);
+
+        // sanity: old admin can mint before rotation
+        client.mint_from_minter(&admin, &alice, &10);
+
+        // T4.1: proposing alone must NOT revoke the old admin's power yet.
+        client.set_admin(&new_admin);
+        assert!(client.is_minter(&admin));
+
+        client.accept_admin();
+        assert_eq!(client.admin(), new_admin);
+
+        // new admin has mint power
+        client.mint_from_minter(&new_admin, &alice, &10);
+
+        // OLD admin must NOT: it is no longer a minter AND is frozen.
+        assert!(!client.is_minter(&admin));
+        assert_eq!(
+            client.try_mint_from_minter(&admin, &alice, &10),
+            Err(Ok(StarTokenError::AccountNotAuthorized))
+        );
+    }
+
+    // T1.1 companion / T4.1: rotating to self must not lock the admin out.
+    #[test]
+    fn set_admin_to_self_keeps_powers() {
+        let (_env, client, admin, alice, _bob) = setup();
+        client.set_admin(&admin);
+        client.accept_admin();
+        assert!(client.is_minter(&admin));
+        client.mint_from_minter(&admin, &alice, &5);
+    }
+
+    // T4.1: accept_admin with no proposal outstanding is rejected.
+    #[test]
+    fn accept_admin_without_proposal_fails() {
+        let (_env, client, _admin, _alice, _bob) = setup();
+        assert_eq!(
+            client.try_accept_admin(),
+            Err(Ok(StarTokenError::NoPendingAdmin))
+        );
+    }
+
+    // T1.2 (posture): default authorization is TRUE (freeze-list, not allowlist).
+    #[test]
+    fn default_authorization_posture_is_true() {
+        let (env, client, _admin, _alice, _bob) = setup();
+        let never_touched = Address::generate(&env);
+        assert!(client.authorized(&never_touched));
+    }
+
+    // T1.2 (negative): a frozen address is rejected on both transfer and mint.
+    #[test]
+    fn frozen_address_rejected_on_transfer_and_mint() {
+        let (_env, client, _admin, alice, bob) = setup();
+        client.mint(&alice, &100);
+
+        // Freeze bob.
+        client.set_authorized(&bob, &false);
+        assert!(!client.authorized(&bob));
+
+        // Transfer TO a frozen address is rejected.
+        assert_eq!(
+            client.try_transfer(&alice, MuxedAddress::from(bob.clone()), &10),
+            Err(Ok(StarTokenError::AccountNotAuthorized))
+        );
+        // Mint TO a frozen address is rejected.
+        assert_eq!(
+            client.try_mint(&bob, &10),
+            Err(Ok(StarTokenError::AccountNotAuthorized))
+        );
+    }
+
+    // ── TIER 3 ──────────────────────────────────────────────────────────────
+
+    // T3.1: burn_fee burns the bps fee DIRECTLY from `from` and decreases total
+    // supply by exactly the fee. No transfer-then-burn hop, so fee_recipient
+    // does NOT need a balance or authorization for the burn to succeed.
+    #[test]
+    fn burn_fee_burns_from_payer_and_decreases_supply() {
+        let (env, client, admin, alice, _bob) = setup();
+        let recipient = Address::generate(&env);
+        client.mint(&alice, &10_000);
+        assert_eq!(client.total_supply(), 10_000);
+
+        // 250 bps = 2.5% of 10_000 = 250.
+        client.set_fee_burn_config(&true, &250, &recipient);
+        let _ = admin;
+
+        let burned = client.burn_fee(&alice, &10_000);
+        assert_eq!(burned, 250);
+        assert_eq!(client.balance(&alice), 9_750); // fee removed from payer
+        assert_eq!(client.balance(&recipient), 0); // recipient never received it
+        assert_eq!(client.total_supply(), 9_750); // supply dropped by the fee
+    }
+
+    // T3.1 bounds: fee_basis_points is capped at 10000 (100%) by
+    // set_fee_burn_config; anything larger is rejected.
+    #[test]
+    fn set_fee_burn_config_rejects_bps_over_100_percent() {
+        let (env, client, _admin, _alice, _bob) = setup();
+        let recipient = Address::generate(&env);
+        assert_eq!(
+            client.try_set_fee_burn_config(&true, &10_001, &recipient),
+            Err(Ok(StarTokenError::InvalidAmount))
+        );
+        // exactly 10000 (100%) is allowed
+        client.set_fee_burn_config(&true, &10_000, &recipient);
+    }
+
+    // T3.1 rounding: integer division rounds the fee DOWN, so a sub-1-unit fee
+    // burns nothing and returns 0 (no-op, not an error).
+    #[test]
+    fn burn_fee_rounds_down_and_returns_zero_for_dust() {
+        let (env, client, _admin, alice, _bob) = setup();
+        let recipient = Address::generate(&env);
+        client.mint(&alice, &100);
+
+        // 1 bp of 100 = 100/10000 = 0.01 -> rounds down to 0.
+        client.set_fee_burn_config(&true, &1, &recipient);
+        let burned = client.burn_fee(&alice, &100);
+        assert_eq!(burned, 0);
+        assert_eq!(client.balance(&alice), 100); // untouched
+        assert_eq!(client.total_supply(), 100);
+    }
+
+    // T3.1: when fee burn is disabled, burn_fee is a no-op returning 0.
+    #[test]
+    fn burn_fee_disabled_is_noop() {
+        let (_env, client, _admin, alice, _bob) = setup();
+        client.mint(&alice, &10_000);
+        let burned = client.burn_fee(&alice, &10_000);
+        assert_eq!(burned, 0);
+        assert_eq!(client.total_supply(), 10_000);
+    }
+
+    // ── TIER 5 ──────────────────────────────────────────────────────────────
+
+    // T5.1: admin-only entrypoints reject a call with no auth present. An
+    // unauthorized require_auth() surfaces as Err(Err(_)) (host auth abort).
+    #[test]
+    fn negative_auth_admin_only_entrypoints() {
+        let (env, client, _admin, alice, bob) = setup();
+        env.set_auths(&[]);
+        assert!(client.try_pause().is_err());
+        assert!(client.try_unpause().is_err());
+        assert!(client.try_set_admin(&alice).is_err());
+        assert!(client.try_set_minter(&alice, &true).is_err());
+        assert!(client.try_set_authorized(&alice, &false).is_err());
+        assert!(client.try_set_fee_burn_config(&true, &100, &bob).is_err());
+        assert!(client.try_mint(&alice, &10).is_err());
+    }
+
+    // T5.1: value-moving entrypoints require the funds-holder / spender / minter
+    // auth. Each must abort with no auth present.
+    #[test]
+    fn negative_auth_value_moving_entrypoints() {
+        let (env, client, admin, alice, bob) = setup();
+        client.mint(&alice, &1_000); // give alice a balance (admin-authed under mock)
+        env.set_auths(&[]);
+        assert!(client
+            .try_transfer(&alice, MuxedAddress::from(bob.clone()), &10)
+            .is_err());
+        assert!(client.try_approve(&alice, &bob, &10, &10_000).is_err());
+        assert!(client.try_transfer_from(&bob, &alice, &bob, &10).is_err());
+        assert!(client.try_burn(&alice, &10).is_err());
+        assert!(client.try_burn_from(&bob, &alice, &10).is_err());
+        assert!(client.try_mint_from_minter(&admin, &alice, &10).is_err());
+    }
+
+    // T5.1: accept_admin requires the PENDING admin's auth even with a proposal
+    // outstanding.
+    #[test]
+    fn negative_auth_accept_admin() {
+        let (env, client, _admin, alice, _bob) = setup();
+        client.set_admin(&alice); // propose
+        env.set_auths(&[]);
+        assert!(client.try_accept_admin().is_err());
+    }
+
+    // T5.2: boundary — supply cap. Minting exactly to the cap succeeds; one over
+    // the cap is refused.
+    #[test]
+    fn boundary_supply_cap() {
+        let (_env, client, _admin, alice, _bob) = setup();
+        client.mint(&alice, &1_000_000); // exactly max_supply
+        assert_eq!(client.total_supply(), 1_000_000);
+        assert_eq!(
+            client.try_mint(&alice, &1),
+            Err(Ok(StarTokenError::SupplyCapExceeded))
+        );
+    }
+
+    // T5.2: boundary — non-positive amounts are rejected on mint/transfer/burn.
+    #[test]
+    fn boundary_non_positive_amounts() {
+        let (env, client, _admin, alice, bob) = setup();
+        client.mint(&alice, &100);
+        assert_eq!(client.try_mint(&alice, &0), Err(Ok(StarTokenError::InvalidAmount)));
+        assert_eq!(client.try_mint(&alice, &-1), Err(Ok(StarTokenError::InvalidAmount)));
+        assert_eq!(
+            client.try_transfer(&alice, MuxedAddress::from(bob), &0),
+            Err(Ok(StarTokenError::InvalidAmount))
+        );
+        assert_eq!(client.try_burn(&alice, &-5), Err(Ok(StarTokenError::InvalidAmount)));
+    }
+
+    // T5.2: boundary — spending more than the balance / allowance is refused.
+    #[test]
+    fn boundary_insufficient_balance_and_allowance() {
+        let (env, client, _admin, alice, bob) = setup();
+        client.mint(&alice, &50);
+        assert_eq!(
+            client.try_transfer(&alice, MuxedAddress::from(bob.clone()), &51),
+            Err(Ok(StarTokenError::InsufficientBalance))
+        );
+        // Allowance of 10, spend 11.
+        client.approve(&alice, &bob, &10, &10_000);
+        assert_eq!(
+            client.try_transfer_from(&bob, &alice, &bob, &11),
+            Err(Ok(StarTokenError::InsufficientAllowance))
+        );
+    }
+
+    // T5.3: invariant — total_supply equals the sum of mints minus burns, and a
+    // transfer is supply-neutral. Walk mint -> transfer -> burn and check.
+    #[test]
+    fn invariant_supply_conservation() {
+        let (env, client, _admin, alice, bob) = setup();
+        client.mint(&alice, &100);
+        assert_eq!(client.total_supply(), 100);
+
+        // Transfer moves value but does NOT change supply.
+        client.transfer(&alice, MuxedAddress::from(bob.clone()), &40);
+        assert_eq!(client.balance(&alice), 60);
+        assert_eq!(client.balance(&bob), 40);
+        assert_eq!(client.total_supply(), 100);
+
+        // Burn decreases supply by exactly the burned amount.
+        client.burn(&bob, &10);
+        assert_eq!(client.balance(&bob), 30);
+        assert_eq!(client.total_supply(), 90);
+        assert_eq!(client.balance(&alice) + client.balance(&bob), client.total_supply());
     }
 }

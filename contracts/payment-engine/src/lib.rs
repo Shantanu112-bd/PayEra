@@ -1,6 +1,20 @@
 #![cfg_attr(target_family = "wasm", no_std)]
 #![allow(clippy::too_many_arguments)]
 
+//! Payment engine.
+//!
+//! TRUST ASSUMPTION (T4.4): this contract does NOT consult an on-chain price
+//! oracle. Every economic figure — `amount_in_paise`, the crypto asset code,
+//! the off-chain FX quote and settlement amounts — is supplied by the
+//! authorized operator when it drives a payment through its lifecycle. The
+//! contract enforces authorization, merchant approval, the state machine, and
+//! idempotency; it does NOT independently verify that the quoted rate or the
+//! paise amount reflect a fair market price. Operators are trusted to quote
+//! honestly. A compromised or dishonest operator can mis-state amounts, so the
+//! operator key must be held to the same custody standard as the admin key.
+//! This is a deliberate design decision: FX and crypto pricing live off-chain
+//! in the provider-agnostic ramp layer, keeping the contract oracle-free.
+
 use soroban_sdk::{
     contract, contractclient, contracterror, contractevent, contractimpl, contracttype,
     symbol_short, Address, BytesN, Env, Symbol,
@@ -23,6 +37,10 @@ pub trait RewardEngineInterface {
     ) -> i128;
 }
 
+/// Instance-storage TTL management (see merchant-registry for rationale).
+const INSTANCE_BUMP_THRESHOLD: u32 = 518_400; // ~30 days of ledgers
+const INSTANCE_BUMP_AMOUNT: u32 = 1_036_800; // ~60 days of ledgers
+
 #[contract]
 pub struct PaymentEngine;
 
@@ -39,6 +57,7 @@ pub enum PaymentEngineError {
     PaymentAlreadyExists = 7,
     PaymentNotFound = 8,
     InvalidStatus = 9,
+    NoPendingAdmin = 10,
 }
 
 #[contracttype]
@@ -115,20 +134,19 @@ enum DataKey {
     Operator(Address),
     Paused,
     Payment(BytesN<32>),
+    PendingAdmin,
     RewardEngine,
 }
 
 #[contractimpl]
 impl PaymentEngine {
-    pub fn initialize(
+    // T3.2: atomic deploy+init via __constructor (see merchant-registry).
+    pub fn __constructor(
         env: Env,
         admin: Address,
         merchant_registry: Address,
         reward_engine: Address,
-    ) -> Result<(), PaymentEngineError> {
-        if is_initialized(&env) {
-            return Err(PaymentEngineError::AlreadyInitialized);
-        }
+    ) {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Initialized, &true);
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -145,6 +163,7 @@ impl PaymentEngine {
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Operator(admin.clone()), 100, 518400);
+        bump_instance(&env);
         PaymentConfigEvent {
             action: symbol_short!("init"),
             account: admin.clone(),
@@ -152,7 +171,6 @@ impl PaymentEngine {
             flag: true,
         }
         .publish(&env);
-        Ok(())
     }
 
     pub fn admin(env: Env) -> Result<Address, PaymentEngineError> {
@@ -160,21 +178,62 @@ impl PaymentEngine {
         Ok(read_admin(&env))
     }
 
+    /// Permissionless: extend the instance-storage TTL. Anyone may call this.
+    pub fn heartbeat(env: Env) -> Result<(), PaymentEngineError> {
+        require_initialized(&env)?;
+        bump_instance(&env);
+        Ok(())
+    }
+
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), PaymentEngineError> {
         require_not_paused(&env)?;
         let admin = read_admin(&env);
         admin.require_auth();
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
         env.storage()
-            .persistent()
-            .set(&DataKey::Operator(new_admin.clone()), &true);
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Operator(new_admin.clone()), 100, 518400);
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
         PaymentConfigEvent {
-            action: symbol_short!("admin"),
+            action: symbol_short!("adm_prop"),
             account: admin,
             counterparty: new_admin,
+            flag: true,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Second step of the two-step admin handoff: the proposed admin claims the
+    /// role by authorizing itself, then the OUTGOING admin's operator privilege
+    /// is revoked (T1.1) so a rotated-out key can no longer create/settle/refund
+    /// payments. Skip revocation on self-rotation.
+    pub fn accept_admin(env: Env) -> Result<(), PaymentEngineError> {
+        require_not_paused(&env)?;
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(PaymentEngineError::NoPendingAdmin)?;
+        pending.require_auth();
+        let old_admin = read_admin(&env);
+
+        if old_admin != pending {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Operator(old_admin.clone()), &false);
+        }
+
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Operator(pending.clone()), &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Operator(pending.clone()), 100, 518400);
+        PaymentConfigEvent {
+            action: symbol_short!("admin"),
+            account: old_admin,
+            counterparty: pending,
             flag: true,
         }
         .publish(&env);
@@ -262,6 +321,10 @@ impl PaymentEngine {
         Ok(())
     }
 
+    /// Create a payment. `amount_in_paise` and `asset` are operator-supplied and
+    /// trusted as-is (T4.4): the contract validates authorization, merchant
+    /// approval and idempotency, but has no oracle to check the amount against a
+    /// market rate.
     pub fn create_payment(
         env: Env,
         operator: Address,
@@ -388,18 +451,31 @@ impl PaymentEngine {
         let reward_engine = read_reward_engine(&env);
         let reward_client = RewardEngineClient::new(&env, &reward_engine);
         let issuer = env.current_contract_address();
-        let amount = reward_client.issue_spend_reward(
+        // T2.2: use the non-trapping try_ variant. If the reward engine reverts
+        // (e.g. STAR supply cap reached, reward engine paused), a *settled*
+        // payment must still be able to reach a terminal state instead of being
+        // permanently trapped in Settled. On failure we record star_reward = 0
+        // and emit a distinct "rewarderr" event so the shortfall is auditable;
+        // the payment still advances to Rewarded and can be completed.
+        let amount = match reward_client.try_issue_spend_reward(
             &issuer,
             &payment.reward_id,
             &payment.payer,
             &payment.payment_id,
             &payment.amount_in_paise,
-        );
+        ) {
+            Ok(Ok(amount)) => amount,
+            _ => 0,
+        };
         payment.star_reward = amount;
         payment.status = PaymentStatus::Rewarded;
         touch_and_write(&env, &mut payment);
         PaymentEvent {
-            action: symbol_short!("reward"),
+            action: if amount > 0 {
+                symbol_short!("reward")
+            } else {
+                symbol_short!("rewarderr")
+            },
             payment_id,
             actor: operator,
             status: payment.status,
@@ -513,6 +589,12 @@ fn is_initialized(env: &Env) -> bool {
         .instance()
         .get(&DataKey::Initialized)
         .unwrap_or(false)
+}
+
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_AMOUNT);
 }
 
 fn require_initialized(env: &Env) -> Result<(), PaymentEngineError> {
@@ -671,6 +753,26 @@ mod test {
         }
     }
 
+    // A reward engine that always traps, mimicking STAR supply-cap exhaustion
+    // or a paused reward engine. Used to prove a settled payment is not
+    // permanently trapped when reward issuance fails (T2.2).
+    #[contract]
+    pub struct FailingRewardEngine;
+
+    #[contractimpl]
+    impl FailingRewardEngine {
+        pub fn issue_spend_reward(
+            _env: Env,
+            _issuer: Address,
+            _reward_id: BytesN<32>,
+            _recipient: Address,
+            _source_id: BytesN<32>,
+            _amount_in_paise: i128,
+        ) -> i128 {
+            panic!("reward engine unavailable (e.g. STAR supply cap reached)");
+        }
+    }
+
     fn bytes(env: &Env, seed: u8) -> BytesN<32> {
         BytesN::from_array(env, &[seed; 32])
     }
@@ -688,14 +790,13 @@ mod test {
         env.mock_all_auths();
         let registry_id = env.register(MockMerchantRegistry, ());
         let reward_id = env.register(MockRewardEngine, ());
-        let payment_id = env.register(PaymentEngine, ());
+        let admin = Address::generate(&env);
+        let payment_id = env.register(PaymentEngine, (&admin, &registry_id, &reward_id));
         let payment_client = PaymentEngineClient::new(&env, &payment_id);
         let registry_client = MockMerchantRegistryClient::new(&env, &registry_id);
-        let admin = Address::generate(&env);
         let operator = Address::generate(&env);
         let payer = Address::generate(&env);
         let merchant_id = bytes(&env, 1);
-        payment_client.initialize(&admin, &registry_id, &reward_id);
         payment_client.set_operator(&operator, &true);
         registry_client.set_approved(&merchant_id, &true);
         (
@@ -737,11 +838,73 @@ mod test {
         assert_eq!(payment.star_reward, 50);
     }
 
+    // T2.2: a settled payment must reach a terminal state even when the reward
+    // engine reverts (e.g. STAR supply cap reached). Before the fix, issue_reward
+    // used the trapping client call, so the whole tx reverted and the payment
+    // was permanently stuck in Settled. Now issue_reward records star_reward = 0
+    // and advances to Rewarded, allowing complete_payment to finish the flow.
+    #[test]
+    fn settled_payment_completes_when_reward_engine_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let registry_id = env.register(MockMerchantRegistry, ());
+        let failing_reward_id = env.register(FailingRewardEngine, ());
+        let admin = Address::generate(&env);
+        let payment_contract =
+            env.register(PaymentEngine, (&admin, &registry_id, &failing_reward_id));
+        let client = PaymentEngineClient::new(&env, &payment_contract);
+        let registry = MockMerchantRegistryClient::new(&env, &registry_id);
+        let operator = Address::generate(&env);
+        let payer = Address::generate(&env);
+        let merchant_id = bytes(&env, 1);
+        client.set_operator(&operator, &true);
+        registry.set_approved(&merchant_id, &true);
+
+        let payment_id = bytes(&env, 2);
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 3),
+        );
+        client.quote_payment(&operator, &payment_id, &600, &600, &50);
+        client.mark_converted(&operator, &payment_id);
+        client.mark_settled(&operator, &payment_id);
+
+        // issue_reward must NOT trap even though the reward engine panics.
+        let reward = client.issue_reward(&operator, &payment_id);
+        assert_eq!(reward, 0);
+
+        // The payment can still be completed — it is not trapped in Settled.
+        client.complete_payment(&operator, &payment_id);
+        let payment = client.get_payment(&payment_id);
+        assert_eq!(payment.status, PaymentStatus::Completed);
+        assert_eq!(payment.star_reward, 0);
+    }
+
+    // T2.1: heartbeat() permissionlessly re-extends the instance TTL.
+    #[test]
+    fn heartbeat_extends_instance_ttl() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        use soroban_sdk::testutils::Ledger as _;
+        let (env, client, _registry, _admin, _operator, _payer, _merchant_id) = setup();
+        let contract_id = client.address.clone();
+
+        env.ledger().set_sequence_number(600_000);
+        client.heartbeat();
+
+        let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert_eq!(ttl, INSTANCE_BUMP_AMOUNT);
+    }
+
     #[test]
     fn rejects_unapproved_merchant() {
         let (env, client, registry, _admin, operator, payer, merchant_id) = setup();
         registry.set_approved(&merchant_id, &false);
-
         assert_eq!(
             client.try_create_payment(
                 &operator,
@@ -754,6 +917,82 @@ mod test {
                 &bytes(&env, 5)
             ),
             Err(Ok(PaymentEngineError::MerchantNotApproved))
+        );
+    }
+
+    #[test]
+    fn set_admin_revokes_old_admin_operator_power() {
+        // The initial admin is granted the Operator flag at initialize().
+        // After a two-step rotation the old admin key must no longer be able to
+        // create/settle payments (privilege-escalation regression guard). T4.1:
+        // revocation happens on accept_admin, not on the propose step.
+        let (env, client, _registry, admin, _operator, payer, merchant_id) = setup();
+
+        // Sanity: the old admin can create a payment while still admin/operator.
+        client.create_payment(
+            &admin,
+            &payer,
+            &bytes(&env, 10),
+            &merchant_id,
+            &AssetCode::ETH,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+
+        let new_admin = Address::generate(&env);
+
+        // T4.1: proposing alone must NOT revoke the old admin's operator power.
+        client.set_admin(&new_admin);
+        client.create_payment(
+            &admin,
+            &payer,
+            &bytes(&env, 20),
+            &merchant_id,
+            &AssetCode::ETH,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+
+        client.accept_admin();
+        assert_eq!(client.admin(), new_admin);
+
+        // The rotated-out admin must now be rejected as an operator.
+        assert_eq!(
+            client.try_create_payment(
+                &admin,
+                &payer,
+                &bytes(&env, 11),
+                &merchant_id,
+                &AssetCode::ETH,
+                &50_000,
+                &bytes(&env, 4),
+                &bytes(&env, 5)
+            ),
+            Err(Ok(PaymentEngineError::Unauthorized))
+        );
+
+        // The new admin inherits operator power and can create payments.
+        client.create_payment(
+            &new_admin,
+            &payer,
+            &bytes(&env, 12),
+            &merchant_id,
+            &AssetCode::ETH,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+    }
+
+    // T4.1: accept_admin with no proposal outstanding is rejected.
+    #[test]
+    fn accept_admin_without_proposal_fails() {
+        let (_env, client, _registry, _admin, _operator, _payer, _merchant_id) = setup();
+        assert_eq!(
+            client.try_accept_admin(),
+            Err(Ok(PaymentEngineError::NoPendingAdmin))
         );
     }
 
@@ -838,33 +1077,35 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let star_id = env.register(star_token::StarToken, ());
-        let registry_id = env.register(merchant_registry::MerchantRegistry, ());
-        let reward_id = env.register(reward_engine::RewardEngine, ());
-        let payment_id = env.register(PaymentEngine, ());
+        let admin = Address::generate(&env);
+
+        // T3.2: each contract is initialized atomically at registration via its
+        // __constructor. reward depends on star; payment depends on registry +
+        // reward, so they are registered in dependency order.
+        let star_id = env.register(
+            star_token::StarToken,
+            (
+                &admin,
+                soroban_sdk::String::from_str(&env, "STAR Token"),
+                soroban_sdk::String::from_str(&env, "STAR"),
+                1_000_000_i128,
+            ),
+        );
+        let registry_id = env.register(merchant_registry::MerchantRegistry, (&admin,));
+        let reward_id = env.register(reward_engine::RewardEngine, (&admin, &star_id));
+        let payment_id = env.register(PaymentEngine, (&admin, &registry_id, &reward_id));
 
         let star = star_token::StarTokenClient::new(&env, &star_id);
         let registry = merchant_registry::MerchantRegistryClient::new(&env, &registry_id);
         let reward = reward_engine::RewardEngineClient::new(&env, &reward_id);
         let payment = PaymentEngineClient::new(&env, &payment_id);
 
-        let admin = Address::generate(&env);
         let operator = Address::generate(&env);
         let owner = Address::generate(&env);
         let payer = Address::generate(&env);
         let merchant_id = bytes(&env, 1);
         let chain_payment_id = bytes(&env, 2);
         let reward_record_id = bytes(&env, 3);
-
-        star.initialize(
-            &admin,
-            &soroban_sdk::String::from_str(&env, "STAR Token"),
-            &soroban_sdk::String::from_str(&env, "STAR"),
-            &1_000_000,
-        );
-        registry.initialize(&admin);
-        reward.initialize(&admin, &star_id);
-        payment.initialize(&admin, &registry_id, &reward_id);
 
         star.set_minter(&reward_id, &true);
         reward.set_issuer(&payment_id, &true);
@@ -898,5 +1139,207 @@ mod test {
             reward.get_reward(&reward_record_id).kind,
             reward_engine::RewardKind::Spend
         );
+    }
+
+    // ── TIER 5 ──────────────────────────────────────────────────────────────
+
+    // T5.1: admin-only entrypoints reject a call with no auth present. An
+    // unauthorized require_auth() surfaces as Err(Err(_)) (host auth abort).
+    #[test]
+    fn negative_auth_admin_only_entrypoints() {
+        let (env, client, registry, _admin, operator, _payer, _merchant_id) = setup();
+        env.set_auths(&[]);
+        assert!(client.try_pause().is_err());
+        assert!(client.try_unpause().is_err());
+        assert!(client.try_set_admin(&operator).is_err());
+        assert!(client.try_set_operator(&operator, &true).is_err());
+        assert!(client
+            .try_set_contracts(&registry.address, &registry.address)
+            .is_err());
+    }
+
+    // T5.1: operator-gated lifecycle entrypoints reject a call with no auth
+    // present, even for an operator that IS enabled.
+    #[test]
+    fn negative_auth_operator_gated_entrypoints() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        let payment_id = bytes(&env, 2);
+        // Create a payment (operator-authed under mock) so transitions reach the gate.
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+
+        env.set_auths(&[]);
+        assert!(client
+            .try_create_payment(
+                &operator,
+                &payer,
+                &bytes(&env, 3),
+                &merchant_id,
+                &AssetCode::USDC,
+                &50_000,
+                &bytes(&env, 4),
+                &bytes(&env, 5)
+            )
+            .is_err());
+        assert!(client
+            .try_quote_payment(&operator, &payment_id, &600, &600, &50)
+            .is_err());
+        assert!(client.try_mark_converted(&operator, &payment_id).is_err());
+        assert!(client.try_mark_settled(&operator, &payment_id).is_err());
+        assert!(client.try_issue_reward(&operator, &payment_id).is_err());
+        assert!(client.try_complete_payment(&operator, &payment_id).is_err());
+        assert!(client.try_fail_payment(&operator, &payment_id).is_err());
+    }
+
+    // T5.1: cancel_payment is gated on the PAYER's auth, not the operator's.
+    #[test]
+    fn negative_auth_cancel_requires_payer() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        let payment_id = bytes(&env, 2);
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+        env.set_auths(&[]);
+        assert!(client.try_cancel_payment(&payer, &payment_id).is_err());
+    }
+
+    // T5.1: accept_admin requires the PENDING admin's auth even with a proposal
+    // outstanding.
+    #[test]
+    fn negative_auth_accept_admin() {
+        let (env, client, _registry, _admin, operator, _payer, _merchant_id) = setup();
+        client.set_admin(&operator); // propose
+        env.set_auths(&[]);
+        assert!(client.try_accept_admin().is_err());
+    }
+
+    // T5.2: boundary — create_payment rejects non-positive amounts.
+    #[test]
+    fn boundary_non_positive_amount() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        assert_eq!(
+            client.try_create_payment(
+                &operator,
+                &payer,
+                &bytes(&env, 2),
+                &merchant_id,
+                &AssetCode::USDC,
+                &0,
+                &bytes(&env, 4),
+                &bytes(&env, 5)
+            ),
+            Err(Ok(PaymentEngineError::InvalidAmount))
+        );
+    }
+
+    // T5.2: boundary — quote_payment rejects non-positive asset/usdc amounts and
+    // a negative network fee.
+    #[test]
+    fn boundary_quote_rejects_bad_values() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        let payment_id = bytes(&env, 2);
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+        assert_eq!(
+            client.try_quote_payment(&operator, &payment_id, &0, &600, &50),
+            Err(Ok(PaymentEngineError::InvalidAmount))
+        );
+        assert_eq!(
+            client.try_quote_payment(&operator, &payment_id, &600, &600, &-1),
+            Err(Ok(PaymentEngineError::InvalidAmount))
+        );
+    }
+
+    // T5.2: boundary — a duplicate payment_id is rejected on the second create.
+    #[test]
+    fn boundary_duplicate_payment_id() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        let payment_id = bytes(&env, 2);
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+        assert_eq!(
+            client.try_create_payment(
+                &operator,
+                &payer,
+                &payment_id,
+                &merchant_id,
+                &AssetCode::USDC,
+                &50_000,
+                &bytes(&env, 4),
+                &bytes(&env, 5)
+            ),
+            Err(Ok(PaymentEngineError::PaymentAlreadyExists))
+        );
+    }
+
+    // T5.3: invariant — the payment state machine only advances in order. Every
+    // out-of-order transition from the freshly-Created state is InvalidStatus.
+    #[test]
+    fn invariant_state_machine_ordering() {
+        let (env, client, _registry, _admin, operator, payer, merchant_id) = setup();
+        let payment_id = bytes(&env, 2);
+        client.create_payment(
+            &operator,
+            &payer,
+            &payment_id,
+            &merchant_id,
+            &AssetCode::USDC,
+            &50_000,
+            &bytes(&env, 4),
+            &bytes(&env, 5),
+        );
+        // From Created you cannot skip ahead to convert/settle/reward/complete.
+        assert_eq!(
+            client.try_mark_converted(&operator, &payment_id),
+            Err(Ok(PaymentEngineError::InvalidStatus))
+        );
+        assert_eq!(
+            client.try_mark_settled(&operator, &payment_id),
+            Err(Ok(PaymentEngineError::InvalidStatus))
+        );
+        assert_eq!(
+            client.try_issue_reward(&operator, &payment_id),
+            Err(Ok(PaymentEngineError::InvalidStatus))
+        );
+        assert_eq!(
+            client.try_complete_payment(&operator, &payment_id),
+            Err(Ok(PaymentEngineError::InvalidStatus))
+        );
+
+        // The correct next step (quote) succeeds, proving the guard is ordering,
+        // not a blanket refusal.
+        client.quote_payment(&operator, &payment_id, &600, &600, &50);
+        assert_eq!(client.get_payment(&payment_id).status, PaymentStatus::Quoted);
     }
 }
