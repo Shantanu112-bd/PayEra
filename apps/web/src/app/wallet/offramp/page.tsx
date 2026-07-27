@@ -12,7 +12,7 @@ type Step = 'amount' | 'loading' | 'anchor' | 'sign' | 'polling' | 'done' | 'err
 
 const HORIZON_URL = process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org'
 const USDC_ISSUER = process.env.NEXT_PUBLIC_USDC_ISSUER || 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5'
-const PASSPHRASE = Networks.TESTNET
+const PASSPHRASE = process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'public' ? Networks.PUBLIC : Networks.TESTNET
 
 export default function OffRampPage() {
   const router = useRouter()
@@ -23,8 +23,7 @@ export default function OffRampPage() {
   const [error, setError] = useState('')
   const [statusText, setStatusText] = useState('')
   const [interactiveUrl, setInteractiveUrl] = useState('')
-  const [txId, setTxId] = useState('')
-  const [jwt, setJwt] = useState('')
+  const [rampId, setRampId] = useState('')
   const [anchorAccount, setAnchorAccount] = useState('')
   const [memo, setMemo] = useState('')
   const [referenceNumber, setReferenceNumber] = useState('')
@@ -46,18 +45,16 @@ export default function OffRampPage() {
     setAmountError('')
     setError('')
     setStep('loading')
-    setStatusText('Authenticating…')
+    setStatusText('Initiating withdrawal…')
     try {
-      const { jwtToken } = await cryptoPaySdk.ramps.authenticate(publicKey)
-      setJwt(jwtToken)
-      setStatusText('Initiating withdrawal…')
-      const { interactiveUrl: url, transactionId } = await cryptoPaySdk.ramps.initiateWithdrawal({
-        userPublicKey: publicKey,
+      // SEP-10 auth happens SERVER-SIDE; the client never holds the anchor JWT.
+      const res = await cryptoPaySdk.ramps.initiateOffRamp({
+        providerId: 'MONEYGRAM',
+        userStellarAddress: publicKey,
         amount,
-        jwtToken,
       })
-      setInteractiveUrl(url)
-      setTxId(transactionId)
+      setInteractiveUrl(res.interactiveUrl || '')
+      setRampId(res.id)
       setStep('anchor')
     } catch (e: any) {
       setError(e.message || 'Failed to initiate withdrawal')
@@ -65,22 +62,26 @@ export default function OffRampPage() {
     }
   }
 
-  const startPolling = (id: string, token: string) => {
+  const startPolling = (id: string) => {
     setStep('polling')
     setStatusText('Waiting for anchor confirmation…')
     const poll = async () => {
       try {
-        const res = await cryptoPaySdk.ramps.getTransactionStatus({ id, jwt: token })
-        setStatusText(`Status: ${res.status}`)
-        if (res.status === 'pending_user_transfer_start' && res.withdrawAnchorAccount) {
-          setAnchorAccount(res.withdrawAnchorAccount)
-          setMemo(res.memo || '')
-          if (res.referenceNumber) setReferenceNumber(res.referenceNumber)
+        const ramp = await cryptoPaySdk.ramps.get(id)
+        setStatusText(`Status: ${ramp.status}`)
+        if (ramp.referenceNumber) setReferenceNumber(ramp.referenceNumber)
+        // Once MoneyGram supplies the destination account + memo, prompt the
+        // user to sign the USDC payment.
+        if (ramp.status === 'PENDING_USER_TRANSFER' && ramp.anchorAccount) {
+          setAnchorAccount(ramp.anchorAccount)
+          setMemo(ramp.stellarMemo || '')
           setStep('sign')
-        } else if (res.status === 'completed') {
-          if (res.referenceNumber) setReferenceNumber(res.referenceNumber)
+        } else if (ramp.status === 'COMPLETED') {
           await refreshBalances()
           setStep('done')
+        } else if (ramp.status === 'ERROR' || ramp.status === 'EXPIRED' || ramp.status === 'REFUNDED') {
+          setError(ramp.failureMessage || `Withdrawal ${ramp.status.toLowerCase()}`)
+          setStep('error')
         } else {
           pollRef.current = setTimeout(poll, 5000)
         }
@@ -93,7 +94,7 @@ export default function OffRampPage() {
 
   const handleIframeDone = () => {
     setInteractiveUrl('')
-    startPolling(txId, jwt)
+    startPolling(rampId)
   }
 
   const handleSignPayment = async () => {
@@ -113,7 +114,7 @@ export default function OffRampPage() {
       const { signedTxXdr: signedTransaction } = await signTransaction(tx.toXDR(), { networkPassphrase: PASSPHRASE, address: publicKey })
       const signedTx = TransactionBuilder.fromXDR(signedTransaction, PASSPHRASE)
       await server.submitTransaction(signedTx)
-      startPolling(txId, jwt)
+      startPolling(rampId)
     } catch (e: any) {
       setError(e.message || 'Failed to sign payment')
       setStep('error')

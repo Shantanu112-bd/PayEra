@@ -16,6 +16,7 @@ function shortKey(key: string | null) {
 
 const SETTINGS_LINKS = [
   { icon: "account_balance_wallet", label: "Manage Wallets", href: "/wallet/manage" },
+  { icon: "swap_horiz", label: "Deposits & Withdrawals", href: "/wallet/activity" },
   { icon: "group_add", label: "Referrals", href: "/rewards/referrals" },
   { icon: "receipt_long", label: "Transaction History", href: "/history" },
   { icon: "shield", label: "Trust & Security", href: "/profile/trust" },

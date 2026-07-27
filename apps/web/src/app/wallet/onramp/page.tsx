@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { cryptoPaySdk } from '@cryptopay/sdk'
+import type { RampProviderId } from '@cryptopay/sdk'
 import { hasUsdcTrustline, addUsdcTrustline } from '../../../lib/trustline'
 import { useStellarWallet } from '../../../components/providers/StellarWalletProvider'
 import { TopBar } from '../../../components/layout/TopBar'
@@ -12,19 +13,29 @@ import { Networks } from '@stellar/stellar-sdk'
 type Step = 'amount' | 'trustline' | 'loading' | 'anchor' | 'polling' | 'done' | 'error'
 
 const HORIZON_URL = process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org'
-const PASSPHRASE = Networks.TESTNET
+const PASSPHRASE = process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'public' ? Networks.PUBLIC : Networks.TESTNET
 
 export default function OnRampPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { publicKey, balances, refreshBalances, connect } = useStellarWallet()
   const [step, setStep] = useState<Step>('amount')
   const [amount, setAmount] = useState('')
   const [error, setError] = useState('')
   const [statusText, setStatusText] = useState('')
   const [interactiveUrl, setInteractiveUrl] = useState('')
-  const [txId, setTxId] = useState('')
-  const [jwt, setJwt] = useState('')
+  const [rampId, setRampId] = useState('')
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // When arriving from another flow (e.g. the /pay top-up entry point), a
+  // suggested amount and a return destination may be supplied via the query.
+  // The entry point is provider-agnostic: it never names a provider — we
+  // resolve one from the ramps registry at initiation time.
+  const returnTo = searchParams.get('returnTo') || '/wallet'
+  useEffect(() => {
+    const topup = searchParams.get('topup')
+    if (topup && Number(topup) > 0) setAmount(topup)
+  }, [searchParams])
 
   useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current) }, [])
 
@@ -59,31 +70,39 @@ export default function OnRampPage() {
     }
   }
 
+  // SEP-10 auth is performed SERVER-SIDE by the ramps backend; the client
+  // never handles the anchor JWT. We resolve an on-ramp-capable provider from
+  // the registry (no hardcoded provider), request an on-ramp, and receive the
+  // interactive URL + our persisted ramp id.
   const authenticate = async () => {
     if (!publicKey) return
-    setStatusText('Authenticating…')
-    const { jwtToken } = await cryptoPaySdk.ramps.authenticate(publicKey)
-    setJwt(jwtToken)
-    const { interactiveUrl: url, transactionId } = await cryptoPaySdk.ramps.initiateDeposit({
-      userPublicKey: publicKey,
+    setStatusText('Initiating deposit…')
+    const providers = await cryptoPaySdk.ramps.listProviders()
+    const provider = providers.find((p) => p.supportsOnRamp)
+    if (!provider) throw new Error('No on-ramp provider is currently available')
+    const res = await cryptoPaySdk.ramps.initiateOnRamp({
+      providerId: provider.id as RampProviderId,
+      userStellarAddress: publicKey,
       amount,
-      jwtToken,
     })
-    setInteractiveUrl(url)
-    setTxId(transactionId)
+    setInteractiveUrl(res.interactiveUrl || '')
+    setRampId(res.id)
     setStep('anchor')
   }
 
-  const startPolling = (id: string, token: string) => {
+  const startPolling = (id: string) => {
     setStep('polling')
     setStatusText('Waiting for deposit confirmation…')
     const poll = async () => {
       try {
-        const { status } = await cryptoPaySdk.ramps.getTransactionStatus({ id, jwt: token })
-        setStatusText(`Status: ${status}`)
-        if (status === 'completed') {
+        const ramp = await cryptoPaySdk.ramps.get(id)
+        setStatusText(`Status: ${ramp.status}`)
+        if (ramp.status === 'COMPLETED') {
           await refreshBalances()
           setStep('done')
+        } else if (ramp.status === 'ERROR' || ramp.status === 'EXPIRED' || ramp.status === 'REFUNDED') {
+          setError(ramp.failureMessage || `Deposit ${ramp.status.toLowerCase()}`)
+          setStep('error')
         } else {
           pollRef.current = setTimeout(poll, 5000)
         }
@@ -96,7 +115,7 @@ export default function OnRampPage() {
 
   const handleIframeDone = () => {
     setInteractiveUrl('')
-    startPolling(txId, jwt)
+    startPolling(rampId)
   }
 
   if (!publicKey) {
@@ -223,7 +242,7 @@ export default function OnRampPage() {
             <div className="bg-surface-container rounded-[16px] px-6 py-3 text-on-surface font-bold text-lg">
               {balances.USDC} USDC
             </div>
-            <button onClick={() => router.push('/wallet')} className="w-full bg-primary text-on-primary font-semibold py-4 rounded-full">
+            <button onClick={() => router.push(returnTo)} className="w-full bg-primary text-on-primary font-semibold py-4 rounded-full">
               Done
             </button>
           </div>

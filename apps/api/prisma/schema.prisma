@@ -118,6 +118,34 @@ enum SettlementStatus {
   FAILED
 }
 
+// --- Fiat On-Ramp / Off-Ramp (provider-agnostic) ---
+// Identifies the external ramp provider. New providers (Onramp.money,
+// Transak, Alchemy Pay, ...) are added here + registered in the provider
+// registry; no other enum/model changes are required.
+enum RampProvider {
+  MONEYGRAM
+}
+
+enum RampType {
+  ONRAMP  // fiat -> crypto (cash-in / deposit)
+  OFFRAMP // crypto -> fiat (cash-out / withdraw)
+}
+
+// Mirrors the SEP-24 transaction lifecycle used by MoneyGram Ramps.
+// Values are intentionally provider-neutral; each provider maps its own
+// native status strings onto these via the provider adapter.
+enum RampStatus {
+  INITIATED                 // created locally, provider interactive URL issued
+  PENDING_USER_TRANSFER     // waiting for the user to act (SEP-24 interactive)
+  PENDING_ANCHOR            // provider is processing
+  PENDING_STELLAR           // waiting for on-chain USDC movement
+  PENDING_EXTERNAL          // waiting for cash pickup / external leg
+  COMPLETED
+  REFUNDED
+  EXPIRED
+  ERROR
+}
+
 enum RewardReason {
   SPEND
   REFERRAL
@@ -183,6 +211,7 @@ model User {
   rewards           Reward[]            @relation("RewardUser")
   sentReferrals     Referral[]          @relation("ReferralInviter")
   transactions      Transaction[]       @relation("TransactionUser")
+  rampTransactions  RampTransaction[]   @relation("RampTransactionUser")
   wallets           Wallet[]
 
   @@index([role, status])
@@ -539,4 +568,73 @@ model OutboxEvent {
   @@index([status, availableAt])
   @@index([aggregateType, aggregateId])
   @@map("outbox_events")
+}
+
+// Provider-agnostic fiat on/off-ramp record. This is the durable audit
+// trail + history source for every ramp, independent of which provider
+// (MoneyGram, etc.) executed it. It is intentionally SEPARATE from the
+// merchant-payment `Transaction` model: a ramp is a user-facing cash
+// in/out event, not a merchant settlement.
+model RampTransaction {
+  id                String       @id @default(uuid()) @db.Uuid
+  publicId          String       @unique @map("public_id") @db.VarChar(40)
+  userId            String       @map("user_id") @db.Uuid
+  provider          RampProvider @default(MONEYGRAM)
+  type              RampType
+  status            RampStatus   @default(INITIATED)
+
+  // The user's own Stellar account (non-custodial). Not a stored secret.
+  userStellarAddress String      @map("user_stellar_address") @db.VarChar(191)
+  assetCode          String      @default("USDC") @map("asset_code") @db.VarChar(12)
+
+  // Provider-native identifiers.
+  providerTxId       String?     @unique @map("provider_tx_id") @db.VarChar(191)
+  interactiveUrl     String?     @map("interactive_url") @db.Text
+
+  // Amounts as strings to preserve precision across the SEP-24 boundary.
+  amountIn           String?     @map("amount_in") @db.VarChar(40)
+  amountOut          String?     @map("amount_out") @db.VarChar(40)
+  amountFee          String?     @map("amount_fee") @db.VarChar(40)
+
+  // Off-ramp cash-pickup details (MoneyGram reference number + memo).
+  referenceNumber    String?     @map("reference_number") @db.VarChar(120)
+  stellarMemo        String?     @map("stellar_memo") @db.VarChar(120)
+  stellarMemoType    String?     @map("stellar_memo_type") @db.VarChar(40)
+  anchorAccount      String?     @map("anchor_account") @db.VarChar(191)
+  stellarTxHash      String?     @map("stellar_tx_hash") @db.VarChar(128)
+
+  failureCode        String?     @map("failure_code") @db.VarChar(80)
+  failureMessage     String?     @map("failure_message") @db.Text
+
+  lastPolledAt       DateTime?   @map("last_polled_at") @db.Timestamptz(6)
+  completedAt        DateTime?   @map("completed_at") @db.Timestamptz(6)
+  metadata           Json        @default("{}")
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user   User                  @relation("RampTransactionUser", fields: [userId], references: [id], onDelete: Restrict)
+  events RampTransactionEvent[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([provider, status])
+  @@map("ramp_transactions")
+}
+
+// Append-only audit log of every ramp state change / provider callback.
+model RampTransactionEvent {
+  id                String      @id @default(uuid()) @db.Uuid
+  rampTransactionId String      @map("ramp_transaction_id") @db.Uuid
+  sequence          Int
+  status            RampStatus?
+  eventType         String      @map("event_type") @db.VarChar(80)
+  source            String      @default("system") @db.VarChar(40) // system | poller | callback | user
+  payload           Json        @default("{}")
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rampTransaction RampTransaction @relation(fields: [rampTransactionId], references: [id], onDelete: Cascade)
+
+  @@unique([rampTransactionId, sequence])
+  @@index([eventType, createdAt])
+  @@map("ramp_transaction_events")
 }

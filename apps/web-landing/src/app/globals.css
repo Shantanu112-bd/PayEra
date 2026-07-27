@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+/*
+  PayEra design system — ONE token set shared by:
+   • Part A: cinematic marketing landing (dark, filmic)
+   • Part B: the working app (same palette, calmer/utilitarian layout)
+
+  Brand accents (used sparingly — never flood a scene):
+   • brand      #2563EB  electric blue   (primary action)
+   • brand-2    #7C3AED  violet          (secondary accent)
+   • brand-glow #6366F1  indigo          (mid / particle glow)
+*/
+
+@theme {
+  /* === Brand === */
+  --color-brand: #2563eb;
+  --color-brand-soft: #3b82f6;
+  --color-brand-2: #7c3aed;
+  --color-brand-glow: #6366f1;
+
+  /* === Ink / surfaces (dark) === */
+  --color-ink: #05070d;
+  --color-surface-0: #070a12;
+  --color-surface-1: #0b1020;
+  --color-surface-2: #10182e;
+  --color-surface-3: #172140;
+  --color-hairline: rgba(255, 255, 255, 0.08);
+  --color-hairline-strong: rgba(255, 255, 255, 0.14);
+
+  /* === Text === */
+  --color-fg: #f5f7ff;
+  --color-fg-muted: #a6adc8;
+  --color-fg-dim: #6b7391;
+
+  /* === Semantic === */
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+
+  /* === Typography === */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* === Radii === */
+  --radius-sm: 0.5rem;
+  --radius: 0.875rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
+  --radius-full: 9999px;
+
+  /* === Motion === */
+  --ease-cinema: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* === Base === */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--color-ink);
+  color: var(--color-fg);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* === Utilities === */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Glass surfaces (used by nav + cards) */
+.glass {
+  background: rgba(11, 16, 32, 0.55);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--color-hairline);
+}
+.glass-strong {
+  background: rgba(16, 24, 46, 0.78);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border: 1px solid var(--color-hairline-strong);
+}
+
+/* Brand gradient text (used once or twice, never everywhere) */
+.text-gradient {
+  background: linear-gradient(
+    100deg,
+    var(--color-brand-soft) 0%,
+    var(--color-brand-glow) 48%,
+    var(--color-brand-2) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Cinematic grade wash — sits over the hero, blends via screen */
+.grade-wash {
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+/* Letterbox bars for the pinned hero film */
+.letterbox {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 0;
+  background: var(--color-ink);
+  z-index: 40;
+  pointer-events: none;
+  transition: height 0.4s var(--ease-cinema);
+}
+
+/* Fine top hairline used to separate sections on dark */
+.section-rule {
+  border-top: 1px solid var(--color-hairline);
+}
+
+/* Focus ring consistent across the app */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* Subtle rising reveal for scroll-in content */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise-in {
+  animation: rise-in 0.8s var(--ease-cinema) both;
+}
+
+/* Spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spinner {
+  animation: spin 0.8s linear infinite;
+}
+
+/* Respect reduced motion: flatten the cinematic layer */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .rise-in {
+    animation: none;
+  }
+}

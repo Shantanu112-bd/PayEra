@@ -1,303 +1,340 @@
-import { Injectable, Logger } from '@nestjs/common'
-import { Horizon, Networks, Keypair, Transaction } from '@stellar/stellar-sdk'
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { KycService } from '../kyc/kyc.service';
+import { createReadableId } from '../common/utils/ids';
+import { RampProviderRegistry } from './providers/ramp-provider.registry';
+import {
+  FiatRampProvider,
+  NormalizedRampStatus,
+  RampStatusResult,
+} from './providers/fiat-ramp-provider.interface';
+import { RampProvider, RampStatus, RampType, KycStatus, Prisma } from '../generated/prisma';
 
-export class Sep10AuthError extends Error {
-  constructor(message: string, public readonly statusCode?: number, public readonly responseBody?: string) {
-    super(message)
-    this.name = 'Sep10AuthError'
-  }
+interface InitiateArgs {
+  userId: string;
+  providerId: string;
+  userStellarAddress: string;
+  amount?: string | undefined;
+  assetCode?: string | undefined;
 }
 
-export class Sep24AnchorError extends Error {
-  constructor(message: string, public readonly statusCode?: number, public readonly responseBody?: string) {
-    super(message)
-    this.name = 'Sep24AnchorError'
-  }
-}
-
+/**
+ * Orchestrates fiat on/off-ramps across ANY registered provider. Owns
+ * persistence (RampTransaction), the append-only audit trail
+ * (RampTransactionEvent), retry, and logging. Contains ZERO provider-specific
+ * logic — everything provider-specific lives behind FiatRampProvider.
+ */
 @Injectable()
 export class RampsService {
-  private readonly logger = new Logger(RampsService.name)
-  private readonly horizonUrl = process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org'
-  private readonly moneygramDomain = process.env.MONEYGRAM_HOME_DOMAIN || 'api.stellar.moneygram.com'
-  private readonly networkPassphrase = Networks.TESTNET
-  
-  private get platformKeypair(): Keypair {
-    const secretKey = process.env.PLATFORM_STELLAR_SECRET_KEY
-    if (!secretKey) {
-      throw new Error('PLATFORM_STELLAR_SECRET_KEY is not set. Required for SEP-10 authentication and signing transaction challenges.')
+  private readonly logger = new Logger(RampsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly registry: RampProviderRegistry,
+    private readonly kyc: KycService,
+  ) {}
+
+  /** Providers + capabilities, for the client to render available options. */
+  listProviders() {
+    return this.registry.list().map((id) => {
+      const p = this.registry.get(id);
+      return {
+        id,
+        supportsOnRamp: p.supportsOnRamp(),
+        supportsOffRamp: p.supportsOffRamp(),
+        supportsStatusCallback: p.supportsStatusCallback(),
+      };
+    });
+  }
+
+  async initiateOnRamp(args: InitiateArgs) {
+    await this.assertKycVerified(args.userId);
+    const provider = this.registry.get(args.providerId);
+    if (!provider.supportsOnRamp()) {
+      throw new BadRequestException(`Provider ${args.providerId} does not support on-ramp`);
     }
+    return this.initiate(RampType.ONRAMP, provider, args);
+  }
+
+  async initiateOffRamp(args: InitiateArgs) {
+    await this.assertKycVerified(args.userId);
+    const provider = this.registry.get(args.providerId);
+    if (!provider.supportsOffRamp()) {
+      throw new BadRequestException(`Provider ${args.providerId} does not support off-ramp`);
+    }
+    if (!args.amount) {
+      throw new BadRequestException('Off-ramp requires an amount');
+    }
+    return this.initiate(RampType.OFFRAMP, provider, args);
+  }
+
+  /**
+   * Server-side KYC gate. A ramp (money moving to/from the fiat rails) may only
+   * be initiated by a fully VERIFIED user. NONE (never started), PENDING (in
+   * review) and REJECTED are all refused. Enforced here — never client-side —
+   * and BEFORE any RampTransaction row is created, so a blocked attempt leaves
+   * no orphaned record.
+   */
+  private async assertKycVerified(userId: string): Promise<void> {
+    const { kycStatus } = await this.kyc.getStatus(userId);
+    if (kycStatus !== KycStatus.VERIFIED) {
+      throw new ForbiddenException(
+        `KYC verification required to use fiat ramps (current status: ${kycStatus})`,
+      );
+    }
+  }
+
+  private async initiate(type: RampType, provider: FiatRampProvider, args: InitiateArgs) {
+    // 1. Create the durable record FIRST (INITIATED) so we never lose a ramp
+    //    even if the provider call fails mid-flight — the audit trail is the
+    //    source of truth (avoids the previously-orphaned-module problem).
+    const ramp = await this.prisma.rampTransaction.create({
+      data: {
+        publicId: createReadableId(type === RampType.ONRAMP ? 'ONRAMP' : 'OFFRAMP'),
+        userId: args.userId,
+        provider: provider.id as RampProvider,
+        type,
+        status: RampStatus.INITIATED,
+        userStellarAddress: args.userStellarAddress,
+        assetCode: args.assetCode || 'USDC',
+        amountIn: args.amount ?? null,
+      },
+    });
+    await this.appendEvent(ramp.id, RampStatus.INITIATED, 'ramp.created', 'system', {
+      type,
+      provider: provider.id,
+    });
+
     try {
-      return Keypair.fromSecret(secretKey)
-    } catch (e) {
-      throw new Error(`PLATFORM_STELLAR_SECRET_KEY is malformed: ${e instanceof Error ? e.message : 'invalid format'}. Must be a valid Stellar secret key starting with "S".`)
+      // 2. SEP-10 auth (server-side, using the platform signer). The provider
+      //    session token is NEVER persisted or returned to the client.
+      const sessionToken = await this.withRetry(
+        () => provider.authenticate({ userStellarAddress: args.userStellarAddress }),
+        `authenticate:${ramp.publicId}`,
+      );
+
+      // 3. SEP-24 interactive initiation.
+      const params = {
+        userStellarAddress: args.userStellarAddress,
+        amount: args.amount,
+        assetCode: args.assetCode,
+      };
+      const result = await this.withRetry(
+        () =>
+          type === RampType.ONRAMP
+            ? provider.initiateOnRamp(sessionToken, params)
+            : provider.initiateOffRamp(sessionToken, params),
+        `initiate:${ramp.publicId}`,
+      );
+
+      const updated = await this.prisma.rampTransaction.update({
+        where: { id: ramp.id },
+        data: {
+          providerTxId: result.providerTxId,
+          interactiveUrl: result.interactiveUrl,
+          status: RampStatus.PENDING_USER_TRANSFER,
+        },
+      });
+      await this.appendEvent(ramp.id, RampStatus.PENDING_USER_TRANSFER, 'ramp.initiated', 'system', {
+        providerTxId: result.providerTxId,
+      });
+
+      return {
+        id: updated.publicId,
+        provider: updated.provider,
+        type: updated.type,
+        status: updated.status,
+        interactiveUrl: updated.interactiveUrl,
+        providerTxId: updated.providerTxId,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      await this.prisma.rampTransaction.update({
+        where: { id: ramp.id },
+        data: { status: RampStatus.ERROR, failureCode: 'INITIATION_FAILED', failureMessage: message },
+      });
+      await this.appendEvent(ramp.id, RampStatus.ERROR, 'ramp.initiation_failed', 'system', { message });
+      this.logger.error(`Ramp ${ramp.publicId} initiation failed: ${message}`);
+      throw err;
     }
   }
 
-  /**
-   * Step 1: Fetch MoneyGram's stellar.toml to get SEP-24 endpoint
-   */
-  async getMoneygramToml(): Promise<{
-    transferServerUrl: string
-    webAuthEndpoint: string
-  }> {
-    const tomlUrl = `https://${this.moneygramDomain}/.well-known/stellar.toml`
-    const response = await fetch(tomlUrl)
+  /** Fetch a ramp (by public id) for the owning user. */
+  async getRamp(userId: string, publicId: string) {
+    const ramp = await this.prisma.rampTransaction.findFirst({
+      where: { publicId, userId },
+    });
+    if (!ramp) throw new NotFoundException('Ramp transaction not found');
+    return this.serialize(ramp);
+  }
 
-    if (!response.ok) {
-      throw new Sep24AnchorError(
-        `Failed to fetch stellar.toml from ${tomlUrl}`,
-        response.status,
-        await response.text().catch(() => ''),
-      )
-    }
-
-    const tomlText = await response.text()
-
-    // Parse TRANSFER_SERVER_SEP0024 and WEB_AUTH_ENDPOINT from TOML
-    const transferMatch = tomlText.match(/TRANSFER_SERVER_SEP0024\s*=\s*"([^"]+)"/)
-    const authMatch = tomlText.match(/WEB_AUTH_ENDPOINT\s*=\s*"([^"]+)"/)
-
+  /** Paginated ramp history for a user. */
+  async listRamps(userId: string, page = 1, limit = 20) {
+    const take = Math.min(Math.max(limit, 1), 100);
+    const skip = (Math.max(page, 1) - 1) * take;
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.rampTransaction.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.rampTransaction.count({ where: { userId } }),
+    ]);
     return {
-      transferServerUrl: transferMatch?.[1] || `https://${this.moneygramDomain}/sep24`,
-      webAuthEndpoint: authMatch?.[1] || `https://${this.moneygramDomain}/sep10`,
-    }
+      items: items.map((r) => this.serialize(r)),
+      meta: { page: Math.max(page, 1), limit: take, total, pageCount: Math.ceil(total / take) },
+    };
   }
 
   /**
-   * Step 2: SEP-10 Authentication
-   * Get challenge transaction from MoneyGram, sign it with platform key
-   * Returns JWT token for SEP-24 calls
+   * Refresh a single ramp's status from its provider and persist any change.
+   * Used by both the reconciliation poller and on-demand status reads.
+   * Idempotent: a no-op if the status is unchanged or already terminal.
    */
-  async authenticateSep10(userPublicKey: string): Promise<string> {
-    const { webAuthEndpoint } = await this.getMoneygramToml()
+  async refreshStatus(rampId: string): Promise<RampStatus> {
+    const ramp = await this.prisma.rampTransaction.findUnique({ where: { id: rampId } });
+    if (!ramp) throw new NotFoundException('Ramp transaction not found');
+    if (this.isTerminal(ramp.status)) return ramp.status;
+    if (!ramp.providerTxId) return ramp.status;
 
-    // Get challenge from MoneyGram
-    const challengeRes = await fetch(
-      `${webAuthEndpoint}?account=${userPublicKey}&home_domain=${process.env.NEXT_PUBLIC_APP_DOMAIN}`,
-    )
-
-    if (!challengeRes.ok) {
-      throw new Sep10AuthError(
-        `SEP-10 challenge request failed`,
-        challengeRes.status,
-        await challengeRes.text().catch(() => ''),
-      )
-    }
-
-    const challengeData = await challengeRes.json() as {
-      transaction: string
-      network_passphrase: string
-    }
-
-    // Parse and sign the challenge transaction with platform signing key
-    const tx = new Transaction(challengeData.transaction, this.networkPassphrase)
-    tx.sign(this.platformKeypair)
-
-    // Submit signed challenge to get JWT
-    const tokenRes = await fetch(webAuthEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transaction: tx.toXDR() }),
-    })
-
-    if (!tokenRes.ok) {
-      throw new Sep10AuthError(
-        `SEP-10 authentication failed`,
-        tokenRes.status,
-        await tokenRes.text().catch(() => ''),
-      )
-    }
-
-    const tokenData = await tokenRes.json() as { token: string }
-
-    this.logger.log(`SEP-10 authentication successful for ${userPublicKey.substring(0, 8)}...`)
-    return tokenData.token
+    const provider = this.registry.get(ramp.provider);
+    const sessionToken = await provider.authenticate({ userStellarAddress: ramp.userStellarAddress });
+    const result = await provider.getStatus(sessionToken, ramp.providerTxId);
+    return this.applyStatus(ramp.id, ramp.status, result, 'poller');
   }
 
   /**
-   * Step 3: SEP-24 Initiate Deposit (On-Ramp)
-   * User pays cash at MoneyGram → receives USDC in their wallet
+   * Apply a provider status result to a ramp. Shared by refreshStatus and the
+   * defensive callback ingress. Only writes when something actually changed.
    */
-  async initiateDeposit(params: {
-    userPublicKey: string
-    amount?: string
-    jwtToken: string
-    assetCode?: string
-  }): Promise<{
-    interactiveUrl: string
-    transactionId: string
-  }> {
-    const { transferServerUrl } = await this.getMoneygramToml()
+  async applyStatus(
+    rampId: string,
+    previousStatus: RampStatus,
+    result: RampStatusResult,
+    source: 'poller' | 'callback' | 'system',
+  ): Promise<RampStatus> {
+    const nextStatus = result.status as RampStatus;
+    const data: Prisma.RampTransactionUpdateInput = { lastPolledAt: new Date() };
+    if (result.amountIn !== undefined) data.amountIn = result.amountIn;
+    if (result.amountOut !== undefined) data.amountOut = result.amountOut;
+    if (result.amountFee !== undefined) data.amountFee = result.amountFee;
+    if (result.referenceNumber !== undefined) data.referenceNumber = result.referenceNumber;
+    if (result.stellarMemo !== undefined) data.stellarMemo = result.stellarMemo;
+    if (result.stellarMemoType !== undefined) data.stellarMemoType = result.stellarMemoType;
+    if (result.anchorAccount !== undefined) data.anchorAccount = result.anchorAccount;
+    if (result.stellarTxHash !== undefined) data.stellarTxHash = result.stellarTxHash;
 
-    const body = new URLSearchParams({
-      asset_code: params.assetCode || 'USDC',
-      account: params.userPublicKey,
-      lang: 'en',
-    })
-    if (params.amount) body.append('amount', params.amount)
+    const changed = nextStatus !== previousStatus;
+    if (changed) {
+      data.status = nextStatus;
+      if (nextStatus === RampStatus.COMPLETED) data.completedAt = new Date();
+      if (nextStatus === RampStatus.ERROR) {
+        data.failureCode = 'PROVIDER_ERROR';
+        data.failureMessage = `Provider reported status "${result.rawStatus}"`;
+      }
+    }
 
-    const response = await fetch(`${transferServerUrl}/transactions/deposit/interactive`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${params.jwtToken}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
+    await this.prisma.rampTransaction.update({ where: { id: rampId }, data });
+
+    if (changed) {
+      await this.appendEvent(rampId, nextStatus, 'ramp.status_changed', source, {
+        from: previousStatus,
+        to: nextStatus,
+        rawStatus: result.rawStatus,
+      });
+      this.logger.log(`Ramp ${rampId} ${previousStatus} -> ${nextStatus} (${source})`);
+    }
+    return nextStatus;
+  }
+
+  private isTerminal(status: RampStatus): boolean {
+    return (
+      status === RampStatus.COMPLETED ||
+      status === RampStatus.REFUNDED ||
+      status === RampStatus.EXPIRED ||
+      status === RampStatus.ERROR
+    );
+  }
+
+  /** Append to the ordered, append-only audit trail for a ramp. */
+  private async appendEvent(
+    rampTransactionId: string,
+    status: RampStatus | null,
+    eventType: string,
+    source: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const last = await this.prisma.rampTransactionEvent.findFirst({
+      where: { rampTransactionId },
+      orderBy: { sequence: 'desc' },
+      select: { sequence: true },
+    });
+    await this.prisma.rampTransactionEvent.create({
+      data: {
+        rampTransactionId,
+        sequence: (last?.sequence ?? 0) + 1,
+        status,
+        eventType,
+        source,
+        payload: payload as Prisma.InputJsonValue,
       },
-      body: body.toString(),
-    })
-
-    if (!response.ok) {
-      throw new Sep24AnchorError(
-        `SEP-24 deposit initiation failed`,
-        response.status,
-        await response.text().catch(() => ''),
-      )
-    }
-
-    const data = await response.json() as {
-      type: string
-      url: string
-      id: string
-    }
-
-    this.logger.log(`SEP-24 deposit initiated: ${data.id}`)
-    return {
-      interactiveUrl: data.url,
-      transactionId: data.id,
-    }
+    });
   }
 
-  /**
-   * Step 3b: SEP-24 Initiate Withdrawal (Off-Ramp)
-   * User sends USDC → receives cash at MoneyGram location
-   */
-  async initiateWithdrawal(params: {
-    userPublicKey: string
-    amount: string
-    jwtToken: string
-    assetCode?: string
-  }): Promise<{
-    interactiveUrl: string
-    transactionId: string
-  }> {
-    const { transferServerUrl } = await this.getMoneygramToml()
-
-    const body = new URLSearchParams({
-      asset_code: params.assetCode || 'USDC',
-      account: params.userPublicKey,
-      amount: params.amount,
-      lang: 'en',
-    })
-
-    const response = await fetch(`${transferServerUrl}/transactions/withdraw/interactive`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${params.jwtToken}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: body.toString(),
-    })
-
-    if (!response.ok) {
-      throw new Sep24AnchorError(
-        `SEP-24 withdrawal initiation failed`,
-        response.status,
-        await response.text().catch(() => ''),
-      )
+  /** Bounded retry with backoff for transient provider/network failures. */
+  private async withRetry<T>(fn: () => Promise<T>, label: string, maxAttempts = 3): Promise<T> {
+    const backoff = [0, 500, 2000];
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (backoff[attempt]) await new Promise((r) => setTimeout(r, backoff[attempt]));
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        this.logger.warn(`${label} attempt ${attempt + 1}/${maxAttempts} failed: ${err instanceof Error ? err.message : err}`);
+      }
     }
-
-    const data = await response.json() as {
-      type: string
-      url: string
-      id: string
-    }
-
-    this.logger.log(`SEP-24 withdrawal initiated: ${data.id}`)
-    return {
-      interactiveUrl: data.url,
-      transactionId: data.id,
-    }
+    throw lastErr;
   }
 
-  /**
-   * Step 4: Poll transaction status
-   * @param params - transactionId, jwtToken, optional maxRetries and retryIntervalMs
-   * @param maxRetries - Maximum number of polling retries (default: 60, ~5 min at 5s interval)
-   * @param retryIntervalMs - Interval between retries in ms (default: 5000)
-   */
-  async getTransactionStatus(params: {
-    transactionId: string
-    jwtToken: string
-    maxRetries?: number
-    retryIntervalMs?: number
-  }): Promise<{
-    status: string
-    memo?: string
-    memoType?: string
-    withdrawAnchorAccount?: string
-    referenceNumber?: string
-    amountIn?: string
-    amountOut?: string
-  }> {
-    const { transferServerUrl } = await this.getMoneygramToml()
-
-    const maxRetries = params.maxRetries ?? 60
-    const retryIntervalMs = params.retryIntervalMs ?? 5000
-    let attempts = 0
-    let result: any = { status: 'unknown' }
-
-    while (attempts < maxRetries) {
-      const response = await fetch(
-        `${transferServerUrl}/transaction?id=${params.transactionId}`,
-        {
-          headers: { 'Authorization': `Bearer ${params.jwtToken}` },
-        }
-      )
-
-      if (!response.ok) {
-        throw new Sep24AnchorError(
-          `SEP-24 status check failed`,
-          response.status,
-          await response.text().catch(() => ''),
-        )
-      }
-
-      const data = await response.json() as {
-        transaction: {
-          status: string
-          withdraw_memo?: string
-          withdraw_memo_type?: string
-          withdraw_anchor_account?: string
-          id?: string
-          amount_in?: string
-          amount_out?: string
-        }
-      }
-
-      const { transaction } = data;
-      const result: any = { status: transaction.status };
-      if (transaction.withdraw_memo) result.memo = transaction.withdraw_memo;
-      if (transaction.withdraw_memo_type) result.memoType = transaction.withdraw_memo_type;
-      if (transaction.withdraw_anchor_account) result.withdrawAnchorAccount = transaction.withdraw_anchor_account;
-      if (transaction.id) result.referenceNumber = transaction.id;
-      if (transaction.amount_in) result.amountIn = transaction.amount_in;
-      if (transaction.amount_out) result.amountOut = transaction.amount_out;
-
-      // Terminal states - return immediately
-      const terminalStates = ['completed', 'failed', 'error', 'expired', 'refunded']
-      if (terminalStates.includes(transaction.status.toLowerCase())) {
-        return result
-      }
-
-      // Pending states - wait and retry
-      attempts++
-      if (attempts < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, retryIntervalMs))
-      }
-    }
-
-    // Max retries reached - return last known status
-    this.logger.warn(`Max retries (${maxRetries}) reached for transaction ${params.transactionId}`)
-    return result
+  private serialize(r: {
+    publicId: string;
+    provider: RampProvider;
+    type: RampType;
+    status: RampStatus;
+    userStellarAddress: string;
+    assetCode: string;
+    amountIn: string | null;
+    amountOut: string | null;
+    amountFee: string | null;
+    interactiveUrl: string | null;
+    referenceNumber: string | null;
+    stellarMemo: string | null;
+    anchorAccount: string | null;
+    stellarTxHash: string | null;
+    failureMessage: string | null;
+    createdAt: Date;
+    completedAt: Date | null;
+  }) {
+    return {
+      id: r.publicId,
+      provider: r.provider,
+      type: r.type,
+      status: r.status,
+      userStellarAddress: r.userStellarAddress,
+      assetCode: r.assetCode,
+      amountIn: r.amountIn,
+      amountOut: r.amountOut,
+      amountFee: r.amountFee,
+      interactiveUrl: r.interactiveUrl,
+      referenceNumber: r.referenceNumber,
+      stellarMemo: r.stellarMemo,
+      anchorAccount: r.anchorAccount,
+      stellarTxHash: r.stellarTxHash,
+      failureMessage: r.failureMessage,
+      createdAt: r.createdAt,
+      completedAt: r.completedAt,
+    };
   }
 }

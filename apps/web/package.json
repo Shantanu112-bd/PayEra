@@ -8,7 +8,8 @@
     "dev": "next dev --turbopack --port 3000",
     "lint": "eslint .",
     "start": "next start --port 3000",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "@cryptopay/sdk": "*",

@@ -1,0 +1,6 @@
+{
+  "buildCommand": "cd ../.. && npm install && npm --workspace @cryptopay/web-landing run build",
+  "outputDirectory": "apps/web-landing/.next",
+  "framework": "nextjs",
+  "installCommand": "echo 'install handled by buildCommand'"
+}

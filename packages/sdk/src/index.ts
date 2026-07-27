@@ -17,6 +17,18 @@ import { AmlSdk } from "./aml";
 export { ApiClient, type ApiClientConfig } from "./core/ApiClient";
 export { ApiError } from "./core/ApiError";
 
+// Re-export ramp types so consumers can import them from the package root.
+export type {
+  RampType,
+  RampProviderId,
+  RampStatus,
+  RampProviderInfo,
+  InitiateRampInput,
+  RampInitiateResult,
+  RampTransaction,
+  RampHistoryResponse,
+} from "./ramps";
+
 export class CryptoPaySdk {
   public auth: AuthSdk;
   public users: UsersSdk;

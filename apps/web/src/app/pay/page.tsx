@@ -9,6 +9,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { parseUpiQr, isUpiVpa } from "../../lib/upi-parser";
 import { getWalletBalances } from "../../lib/horizon";
+import { computeTopUp, buildTopUpQuery } from "../../lib/topup";
 import { getAddress } from "@stellar/freighter-api";
 import { useAppStore } from "../../lib/store";
 import { PaymentConfirm } from "../../components/auth/PaymentConfirm";
@@ -149,6 +150,24 @@ export default function PayPage() {
   };
 
   const processingIdx = txStatus === "ROUTING_STELLAR" ? 0 : txStatus === "SETTLING" ? 1 : 2;
+
+  // Insufficient on-chain balance detection. The quote tells us how much of the
+  // chosen asset the user must pay; `balances` is their live on-chain balance.
+  // When they cannot cover it we surface a top-up (on-ramp) entry point. This
+  // page stays PROVIDER-AGNOSTIC: it only routes to the shared on-ramp flow
+  // (which resolves a provider via the ramps registry). It never references
+  // MoneyGram or any specific provider.
+  const requiredAmount = Number(quote?.usdcAmount ?? 0);
+  const availableBalance = Number((asset === "XLM" ? balances?.xlm : balances?.usdc) ?? 0);
+  const { insufficient, shortfall } = computeTopUp(quote?.usdcAmount, asset === "XLM" ? balances?.xlm : balances?.usdc);
+  const insufficientBalance = step === "QUOTE" && insufficient;
+
+  const goToTopUp = () => {
+    // Hand the shortfall to the shared on-ramp entry point and ask it to return
+    // here afterwards. Only USDC is on-rampable today; XLM users are still sent
+    // to the same provider-agnostic flow.
+    router.push(`/wallet/onramp?${buildTopUpQuery(shortfall, "/pay")}`);
+  };
 
   if (!isKycVerified) {
     return (
@@ -304,10 +323,25 @@ export default function PayPage() {
             </div>
           </div>
           <div className="p-4 pb-safe border-t border-outline-variant">
-            <button onClick={() => setStep("CONFIRM")} disabled={Number(amountPaise) <= 0}
-              className="w-full bg-primary text-on-primary font-bold py-4 rounded-full disabled:opacity-40">
-              Confirm Payment
-            </button>
+            {insufficientBalance ? (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2 text-sm text-error bg-error-container rounded-[16px] p-3">
+                  <span className="material-symbols-outlined text-[18px]">account_balance_wallet</span>
+                  <span>
+                    Insufficient {asset}. You need {requiredAmount} {asset} but have {availableBalance}. Top up {shortfall.toFixed(2)} {asset} to continue.
+                  </span>
+                </div>
+                <button onClick={goToTopUp}
+                  className="w-full bg-primary text-on-primary font-bold py-4 rounded-full">
+                  Top up {asset}
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setStep("CONFIRM")} disabled={Number(amountPaise) <= 0}
+                className="w-full bg-primary text-on-primary font-bold py-4 rounded-full disabled:opacity-40">
+                Confirm Payment
+              </button>
+            )}
           </div>
         </div>
       )}
