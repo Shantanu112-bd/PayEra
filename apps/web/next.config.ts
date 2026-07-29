@@ -25,6 +25,20 @@ const nextConfig: NextConfig = {
       },
     ]
   },
+  async rewrites() {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    const baseUrl = apiUrl.replace(/\/$/, '');
+    return [
+      {
+        source: '/api/v1/wallet/challenge',
+        destination: `${baseUrl}/api/v1/auth/wallet/challenge`,
+      },
+      {
+        source: '/api/v1/:path*',
+        destination: `${baseUrl}/api/v1/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

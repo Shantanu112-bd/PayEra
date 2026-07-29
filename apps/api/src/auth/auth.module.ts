@@ -3,7 +3,7 @@ import { CacheModule } from "@nestjs/cache-manager";
 import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
 
-import { AuthController } from "./auth.controller";
+import { AuthController, WalletController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { JwtStrategy } from "./jwt.strategy";
 
@@ -23,7 +23,7 @@ import { JwtStrategy } from "./jwt.strategy";
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, WalletController],
   exports: [AuthService],
   providers: [AuthService, JwtStrategy],
 })
